@@ -58,7 +58,16 @@ export function renderSidebar(el) {
 
   let html = `
     <div class="sidebar-header">
-      <div class="sidebar-logo">CP</div>
+      <div class="sidebar-logo">
+        <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+          <g fill="currentColor">
+            <circle cx="256" cy="280" r="55"/>
+            <ellipse cx="140" cy="200" rx="32" ry="70" transform="rotate(-30 140 200)"/>
+            <ellipse cx="372" cy="200" rx="32" ry="70" transform="rotate(30 372 200)"/>
+            <ellipse cx="256" cy="380" rx="32" ry="70"/>
+          </g>
+        </svg>
+      </div>
       <span class="sidebar-title">ClawPanel</span>
     </div>
     <nav class="sidebar-nav">
