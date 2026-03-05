@@ -5,6 +5,34 @@
 格式遵循 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
 
+## [0.4.0] - 2026-03-05
+
+### 新增 (Features)
+
+- **Gateway 进程守护** — 检测到 Gateway 意外停止时自动重启（最多 3 次，60s 冷却期），用户主动停止不干预
+- **守护恢复横幅** — 连续重启失败后顶部弹出恢复选项（重试启动 / 从备份恢复 / 服务管理 / 查看日志）
+- **配置文件自愈** — 读取 `openclaw.json` 时自动剥离 UTF-8 BOM，JSON 损坏时自动从 `.bak` 恢复
+- **双配置同步** — 保存模型配置时自动同步到 agent 运行时注册表（`models.json`），包括新增/修改/删除 provider 和 model
+- **流式输出安全超时** — 90 秒无新数据自动结束流式输出，防止 UI 卡死
+- **聊天响应耗时显示** — AI 回复时间戳后显示响应耗时（如 `20:09 · 1.7s`）
+- **跨天时间显示** — 非当天消息显示日期（如 `03-04 20:09`），当天仅显示时间
+- **仪表盘自动刷新** — Gateway 状态变化时自动刷新仪表盘数据，无需手动刷新
+
+### 修复 (Bug Fixes)
+
+- **401 无效令牌** — 修复 `models.json`（agent 运行时注册表）与 `openclaw.json` provider 配置不同步导致的认证失败
+- **删除模型后 Gateway 崩溃** — 删除模型/渠道后自动切换主模型到第一个可用模型，同步清理 `models.json` 中已删除的 provider 和 model
+- **WebSocket 连接被拒** — `allowedOrigins` 改为通配符 `["*"]`，兼容所有 Tauri 运行模式
+- **模型测试触发 Gateway 重启** — 测试结果保存改用 `saveConfigOnly`，不再触发不必要的重启
+- **主模型配置不生效** — `applyDefaultModel` 同步更新到各 agent 的模型覆盖配置，防止 agent 级别旧值覆盖全局默认
+- **WS 代理报错刷屏** — Vite 配置静默处理 Gateway 不可达时的 proxy error
+- **历史图片丢失提示** — 刷新后 Gateway 不返回图片原始数据时显示友好提示
+
+### 优化 (Improvements)
+
+- **拖拽排序重写** — 模型拖拽排序改用 Pointer Events 实现，兼容 Tauri WebView2/WKWebView
+- **用户消息附件保存** — 发送的图片附件保存到本地缓存，支持页面内恢复
+
 ## [0.3.0] - 2026-03-04
 
 ### 新增 (Features)

@@ -50,9 +50,44 @@ fn backups_dir() -> PathBuf {
 #[tauri::command]
 pub fn read_openclaw_config() -> Result<Value, String> {
     let path = super::openclaw_dir().join("openclaw.json");
-    let content = fs::read_to_string(&path).map_err(|e| format!("读取配置失败: {e}"))?;
-    let mut config: Value =
-        serde_json::from_str(&content).map_err(|e| format!("解析 JSON 失败: {e}"))?;
+    let raw = fs::read(&path).map_err(|e| format!("读取配置失败: {e}"))?;
+
+    // 自愈：自动剥离 UTF-8 BOM（EF BB BF），防止 JSON 解析失败
+    let content = if raw.starts_with(&[0xEF, 0xBB, 0xBF]) {
+        String::from_utf8_lossy(&raw[3..]).into_owned()
+    } else {
+        String::from_utf8_lossy(&raw).into_owned()
+    };
+
+    // 解析 JSON，失败时尝试从备份恢复
+    let mut config: Value = match serde_json::from_str(&content) {
+        Ok(v) => {
+            // BOM 被剥离过，静默写回干净文件
+            if raw.starts_with(&[0xEF, 0xBB, 0xBF]) {
+                let _ = fs::write(&path, &content);
+            }
+            v
+        }
+        Err(e) => {
+            // JSON 解析失败，尝试从备份恢复
+            let bak = super::openclaw_dir().join("openclaw.json.bak");
+            if bak.exists() {
+                let bak_raw = fs::read(&bak).map_err(|e2| format!("备份也读取失败: {e2}"))?;
+                let bak_content = if bak_raw.starts_with(&[0xEF, 0xBB, 0xBF]) {
+                    String::from_utf8_lossy(&bak_raw[3..]).into_owned()
+                } else {
+                    String::from_utf8_lossy(&bak_raw).into_owned()
+                };
+                let bak_config: Value = serde_json::from_str(&bak_content)
+                    .map_err(|e2| format!("配置损坏且备份也无效: 原始={e}, 备份={e2}"))?;
+                // 备份有效，恢复主文件
+                let _ = fs::write(&path, &bak_content);
+                bak_config
+            } else {
+                return Err(format!("配置 JSON 损坏且无备份: {e}"));
+            }
+        }
+    };
 
     // 自动清理 UI 专属字段，防止污染配置导致 CLI 启动失败
     if has_ui_fields(&config) {
@@ -74,10 +109,121 @@ pub fn write_openclaw_config(config: Value) -> Result<(), String> {
     let bak = super::openclaw_dir().join("openclaw.json.bak");
     let _ = fs::copy(&path, &bak);
     // 清理 UI 专属字段，避免 CLI schema 校验失败
-    let cleaned = strip_ui_fields(config);
+    let cleaned = strip_ui_fields(config.clone());
     // 写入
     let json = serde_json::to_string_pretty(&cleaned).map_err(|e| format!("序列化失败: {e}"))?;
-    fs::write(&path, json).map_err(|e| format!("写入失败: {e}"))
+    fs::write(&path, &json).map_err(|e| format!("写入失败: {e}"))?;
+
+    // 同步 provider 配置到所有 agent 的 models.json（运行时注册表）
+    sync_providers_to_agent_models(&config);
+
+    Ok(())
+}
+
+/// 将 openclaw.json 的 models.providers 完整同步到每个 agent 的 models.json
+/// 包括：同步 baseUrl/apiKey/api、删除已移除的 provider、删除已移除的 model、
+/// 确保 Gateway 运行时不会引用 openclaw.json 中已不存在的模型
+fn sync_providers_to_agent_models(config: &Value) {
+    let src_providers = config.pointer("/models/providers")
+        .and_then(|p| p.as_object());
+
+    // 收集 openclaw.json 中所有有效的 provider/model 组合
+    let mut valid_models: std::collections::HashSet<String> = std::collections::HashSet::new();
+    if let Some(providers) = src_providers {
+        for (pk, pv) in providers {
+            if let Some(models) = pv.get("models").and_then(|m| m.as_array()) {
+                for m in models {
+                    let id = m.get("id").and_then(|v| v.as_str())
+                        .or_else(|| m.as_str());
+                    if let Some(id) = id {
+                        valid_models.insert(format!("{}/{}", pk, id));
+                    }
+                }
+            }
+        }
+    }
+
+    // 收集所有 agent ID
+    let mut agent_ids = vec!["main".to_string()];
+    if let Some(Value::Array(list)) = config.pointer("/agents/list") {
+        for agent in list {
+            if let Some(id) = agent.get("id").and_then(|v| v.as_str()) {
+                if id != "main" {
+                    agent_ids.push(id.to_string());
+                }
+            }
+        }
+    }
+
+    let agents_dir = super::openclaw_dir().join("agents");
+    for agent_id in &agent_ids {
+        let models_path = agents_dir.join(agent_id).join("agent").join("models.json");
+        if !models_path.exists() {
+            continue;
+        }
+        let Ok(content) = fs::read_to_string(&models_path) else { continue };
+        let Ok(mut models_json) = serde_json::from_str::<Value>(&content) else { continue };
+
+        let mut changed = false;
+
+        // 同步 providers
+        if let Some(dst_providers) = models_json.get_mut("providers").and_then(|p| p.as_object_mut()) {
+            // 1. 删除 openclaw.json 中已不存在的 provider
+            if let Some(src) = src_providers {
+                let to_remove: Vec<String> = dst_providers.keys()
+                    .filter(|k| !src.contains_key(k.as_str()))
+                    .cloned().collect();
+                for k in to_remove {
+                    dst_providers.remove(&k);
+                    changed = true;
+                }
+
+                // 2. 同步存在的 provider 的 baseUrl/apiKey/api + 清理已删除的 models
+                for (provider_name, src_provider) in src.iter() {
+                    if let Some(dst_provider) = dst_providers.get_mut(provider_name) {
+                        if let Some(dst_obj) = dst_provider.as_object_mut() {
+                            // 同步连接信息
+                            for field in ["baseUrl", "apiKey", "api"] {
+                                if let Some(src_val) = src_provider.get(field).and_then(|v| v.as_str()) {
+                                    if dst_obj.get(field).and_then(|v| v.as_str()) != Some(src_val) {
+                                        dst_obj.insert(field.to_string(), Value::String(src_val.to_string()));
+                                        changed = true;
+                                    }
+                                }
+                            }
+                            // 清理已删除的 models
+                            if let Some(dst_models) = dst_obj.get_mut("models").and_then(|m| m.as_array_mut()) {
+                                let src_model_ids: std::collections::HashSet<String> = src_provider
+                                    .get("models").and_then(|m| m.as_array())
+                                    .map(|arr| arr.iter().filter_map(|m| {
+                                        m.get("id").and_then(|v| v.as_str())
+                                            .or_else(|| m.as_str())
+                                            .map(|s| s.to_string())
+                                    }).collect())
+                                    .unwrap_or_default();
+                                let before = dst_models.len();
+                                dst_models.retain(|m| {
+                                    let id = m.get("id").and_then(|v| v.as_str())
+                                        .or_else(|| m.as_str())
+                                        .unwrap_or("");
+                                    src_model_ids.contains(id)
+                                });
+                                if dst_models.len() != before {
+                                    changed = true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if changed {
+            if let Ok(new_json) = serde_json::to_string_pretty(&models_json) {
+                let _ = fs::write(&models_path, new_json);
+            }
+        }
+    }
 }
 
 /// 检测配置中是否包含 UI 专属字段
@@ -333,15 +479,10 @@ pub async fn upgrade_openclaw(app: tauri::AppHandle, source: String) -> Result<S
     let pkg_name = npm_package_name(&source);
     let pkg = format!("{}@latest", pkg_name);
 
-    // 切换源时，或者未安装时（检测 source 和 target，或者目前未安装）
-    // 如果系统里已经安装了别的源，先卸载
+    // 切换源时需要卸载旧包，但为避免安装失败导致 CLI 丢失，
+    // 先安装新包，成功后再卸载旧包
     let old_pkg = npm_package_name(&current_source);
-    if current_source != source {
-        // 先检查是否真的安装了旧包，如果没有安装，npm uninstall 会报错但不影响
-        let _ = app.emit("upgrade-log", format!("清理遗留环境 ({old_pkg})..."));
-        let _ = app.emit("upgrade-progress", 5);
-        let _ = npm_command().args(["uninstall", "-g", old_pkg]).output();
-    }
+    let need_uninstall_old = current_source != source;
 
     let _ = app.emit("upgrade-log", format!("$ npm install -g {pkg}"));
     let _ = app.emit("upgrade-progress", 10);
@@ -404,8 +545,14 @@ pub async fn upgrade_openclaw(app: tauri::AppHandle, source: String) -> Result<S
         return Err("升级失败，请查看日志".into());
     }
 
+    // 安装成功后再卸载旧包（确保 CLI 始终可用）
+    if need_uninstall_old {
+        let _ = app.emit("upgrade-log", format!("清理旧版本 ({old_pkg})..."));
+        let _ = npm_command().args(["uninstall", "-g", old_pkg]).output();
+    }
+
     // 切换源后重装 Gateway 服务
-    if current_source != source {
+    if need_uninstall_old {
         let _ = app.emit("upgrade-log", "正在重装 Gateway 服务（更新启动路径）...");
         // 先停掉旧的
         #[cfg(target_os = "macos")]

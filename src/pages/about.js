@@ -5,6 +5,7 @@
 import { api } from '../lib/tauri-api.js'
 import { toast } from '../components/toast.js'
 import { showUpgradeModal } from '../components/modal.js'
+import { setUpgrading } from '../lib/app-state.js'
 
 export async function render() {
   const page = document.createElement('div')
@@ -15,7 +16,7 @@ export async function render() {
       <img src="/images/logo-brand.png" alt="ClawPanel" style="height:48px;width:auto">
       <div>
         <h1 class="page-title" style="margin:0">ClawPanel</h1>
-        <p class="page-desc" style="margin:0">OpenClaw 可视化管理面板</p>
+        <p class="page-desc" style="margin:0">OpenClaw 可视化管理面板 · <a href="https://claw.qt.cool" target="_blank" rel="noopener" style="color:var(--primary)">claw.qt.cool</a></p>
       </div>
     </div>
     <div class="stat-cards" id="version-cards">
@@ -119,17 +120,25 @@ async function loadData(page) {
       upgradeBtn.onclick = async () => {
         const modal = showUpgradeModal()
         let unlistenLog, unlistenProgress
+        setUpgrading(true)
         try {
-          const { listen } = await import('@tauri-apps/api/event')
-          unlistenLog = await listen('upgrade-log', (e) => modal.appendLog(e.payload))
-          unlistenProgress = await listen('upgrade-progress', (e) => modal.setProgress(e.payload))
+          if (window.__TAURI_INTERNALS__) {
+            try {
+              const { listen } = await import('@tauri-apps/api/event')
+              unlistenLog = await listen('upgrade-log', (e) => modal.appendLog(e.payload))
+              unlistenProgress = await listen('upgrade-progress', (e) => modal.setProgress(e.payload))
+            } catch { /* Web 模式无 Tauri event */ }
+          } else {
+            modal.appendLog('Web 模式：升级过程日志不可用，请等待完成...')
+          }
           const msg = await api.upgradeOpenclaw()
-          modal.setDone(msg)
+          modal.setDone(typeof msg === 'string' ? msg : (msg?.message || '升级完成'))
           loadData(page)
         } catch (e) {
           modal.appendLog(String(e))
           modal.setError('升级失败')
         } finally {
+          setUpgrading(false)
           unlistenLog?.()
           unlistenProgress?.()
         }
@@ -220,6 +229,7 @@ function renderProjects(page) {
 }
 
 const LINKS = [
+  { label: 'Claw 项目官网', url: 'https://claw.qt.cool', primary: true },
   { label: 'cftunnel 官网', url: 'https://cftunnel.qt.cool' },
   { label: 'cftunnel 桌面客户端', url: 'https://github.com/qingchencloud/cftunnel-app/releases' },
   { label: 'OpenClaw 中文翻译', url: 'https://github.com/1186258278/OpenClawChineseTranslation' },
@@ -244,6 +254,6 @@ function renderContribute(page) {
 function renderLinks(page) {
   const el = page.querySelector('#links-list')
   el.innerHTML = `<div style="display:flex;flex-wrap:wrap;gap:var(--space-sm)">
-    ${LINKS.map(l => `<a class="btn btn-secondary btn-sm" href="${l.url}" target="_blank" rel="noopener">${l.label}</a>`).join('')}
+    ${LINKS.map(l => `<a class="btn ${l.primary ? 'btn-primary' : 'btn-secondary'} btn-sm" href="${l.url}" target="_blank" rel="noopener">${l.label}</a>`).join('')}
   </div>`
 }

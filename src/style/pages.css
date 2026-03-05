@@ -96,6 +96,63 @@
 .service-actions {
   display: flex;
   gap: var(--space-sm);
+  align-items: center;
+}
+
+/* 服务操作加载状态 */
+.service-loading {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+.service-spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--border-primary);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: service-spin 0.8s linear infinite;
+}
+
+@keyframes service-spin {
+  to { transform: rotate(360deg); }
+}
+
+.service-loading-text {
+  font-size: var(--font-size-sm);
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+  min-width: 100px;
+}
+
+.service-cancel-btn {
+  font-size: var(--font-size-xs) !important;
+  color: var(--text-tertiary) !important;
+  padding: 2px 8px !important;
+  transition: color var(--transition-fast);
+}
+.service-cancel-btn:hover {
+  color: var(--error) !important;
+}
+
+/* 状态点：加载中脉冲动画 */
+.status-dot.loading {
+  background: var(--warning, #f59e0b);
+  animation: dot-pulse 1s ease-in-out infinite;
+}
+
+@keyframes dot-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.8); }
+}
+
+/* 日志加载状态 */
+.log-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-xl) 0;
 }
 
 /* 日志工具栏 */

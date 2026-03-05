@@ -23,7 +23,19 @@
 
 ---
 
+<p align="center">
+  <img src="docs/terminal-demo.gif" width="800" alt="ClawPanel 安装演示">
+</p>
+
+<p align="center">
+  <a href="https://claw.qt.cool/#video">
+    <img src="https://img.shields.io/badge/%E2%96%B6%20%E6%BC%94%E7%A4%BA%E8%A7%86%E9%A2%91-38%E7%A7%92%E5%BF%AB%E9%80%9F%E4%BA%86%E8%A7%A3-6366f1?style=for-the-badge" alt="演示视频">
+  </a>
+</p>
+
 ClawPanel 是 [OpenClaw](https://github.com/1186258278/OpenClawChineseTranslation) AI Agent 框架的可视化管理面板，提供服务管控、模型配置、日志查看、记忆管理等核心功能，一站式管理你的 OpenClaw 实例。
+
+> 🌐 **官网**: [claw.qt.cool](https://claw.qt.cool/)  |  📦 **下载**: [GitHub Releases](https://github.com/qingchencloud/clawpanel/releases/latest)
 
 ## 下载安装
 
@@ -65,6 +77,10 @@ ClawPanel 是 [OpenClaw](https://github.com/1186258278/OpenClawChineseTranslatio
 
 ## 功能特性
 
+<p align="center">
+  <img src="docs/feature-showcase.gif" width="800" alt="功能矩阵">
+</p>
+
 - **仪表盘** — 系统概览，服务状态实时监控，快捷操作
 - **服务管理** — OpenClaw 启停控制、版本检测与一键升级、Gateway 安装/卸载、配置备份与还原
 - **模型配置** — 多服务商管理、模型增删改查、批量连通性测试、延迟检测、拖拽排序、自动保存+撤销
@@ -77,6 +93,10 @@ ClawPanel 是 [OpenClaw](https://github.com/1186258278/OpenClawChineseTranslatio
 - **关于** — 版本信息、社群入口、相关项目链接、一键升级
 
 ## 功能截图
+
+<p align="center">
+  <img src="docs/quick-stats.gif" width="800" alt="ClawPanel 数据概览">
+</p>
 
 <p align="center">
   <img src="docs/01.png" width="800" alt="仪表盘">
@@ -134,6 +154,10 @@ ClawPanel 是 [OpenClaw](https://github.com/1186258278/OpenClawChineseTranslatio
 </details>
 
 ## 技术架构
+
+<p align="center">
+  <img src="docs/architecture.gif" width="800" alt="ClawPanel 生态架构">
+</p>
 
 | 层级 | 技术 | 说明 |
 |------|------|------|

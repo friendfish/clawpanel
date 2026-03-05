@@ -3,6 +3,9 @@
  */
 import { api } from '../lib/tauri-api.js'
 import { toast } from '../components/toast.js'
+import { onGatewayChange } from '../lib/app-state.js'
+
+let _unsubGw = null
 
 export async function render() {
   const page = document.createElement('div')
@@ -35,7 +38,18 @@ export async function render() {
 
   // 异步加载数据
   loadDashboardData(page)
+
+  // 监听 Gateway 状态变化，自动刷新仪表盘
+  if (_unsubGw) _unsubGw()
+  _unsubGw = onGatewayChange(() => {
+    loadDashboardData(page)
+  })
+
   return page
+}
+
+export function cleanup() {
+  if (_unsubGw) { _unsubGw(); _unsubGw = null }
 }
 
 async function loadDashboardData(page) {
@@ -97,7 +111,7 @@ function renderStatCards(page, services, version, agents, config, tunnel) {
         <span class="status-dot ${gw?.running ? 'running' : 'stopped'}"></span>
       </div>
       <div class="stat-card-value">${gw?.running ? '运行中' : '已停止'}</div>
-      <div class="stat-card-meta">${gw?.pid ? 'PID: ' + gw.pid : '未启动'}</div>
+      <div class="stat-card-meta">${gw?.pid ? 'PID: ' + gw.pid : (gw?.running ? '端口检测' : '未启动')}</div>
     </div>
     <div class="stat-card">
       <div class="stat-card-header">
@@ -183,7 +197,7 @@ function renderOverview(page, services, clawapp, tunnel, mcpConfig, backups, con
             Cloudflare 隧道
           </div>
           <div class="overview-value" style="color: ${tunnel?.running ? 'var(--success)' : (tunnel?.installed ? 'var(--warning)' : 'var(--text-tertiary)')}">
-            ${tunnel?.running ? tunnel.tunnel_name : (tunnel?.installed ? '已停止' : '未安装')}
+            ${tunnel?.running ? (tunnel.tunnel_name || '运行中') : (tunnel?.installed ? '已停止' : '未安装')}
           </div>
         </div>
         <div class="overview-item">
@@ -257,17 +271,41 @@ function bindActions(page) {
 
   btnRestart?.addEventListener('click', async () => {
     btnRestart.disabled = true
+    btnRestart.classList.add('btn-loading')
     btnRestart.textContent = '重启中...'
     try {
       await api.restartService('ai.openclaw.gateway')
-      toast('Gateway 已重启', 'success')
-      setTimeout(() => loadDashboardData(page), 500)
     } catch (e) {
       toast('重启失败: ' + e, 'error')
-    } finally {
       btnRestart.disabled = false
+      btnRestart.classList.remove('btn-loading')
       btnRestart.textContent = '重启 Gateway'
+      return
     }
+    // 轮询等待实际重启完成
+    const t0 = Date.now()
+    while (Date.now() - t0 < 30000) {
+      try {
+        const s = await api.getServicesStatus()
+        const gw = s?.find?.(x => x.label === 'ai.openclaw.gateway') || s?.[0]
+        if (gw?.running) {
+          toast(`Gateway 已重启 (PID: ${gw.pid})`, 'success')
+          btnRestart.disabled = false
+          btnRestart.classList.remove('btn-loading')
+          btnRestart.textContent = '重启 Gateway'
+          loadDashboardData(page)
+          return
+        }
+      } catch {}
+      const sec = Math.floor((Date.now() - t0) / 1000)
+      btnRestart.textContent = `重启中... ${sec}s`
+      await new Promise(r => setTimeout(r, 1500))
+    }
+    toast('重启超时，Gateway 可能仍在启动中', 'warning')
+    btnRestart.disabled = false
+    btnRestart.classList.remove('btn-loading')
+    btnRestart.textContent = '重启 Gateway'
+    loadDashboardData(page)
   })
 
   btnUpdate?.addEventListener('click', async () => {

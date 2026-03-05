@@ -687,6 +687,78 @@
   backdrop-filter: blur(4px);
 }
 
+/* 消息时间戳 */
+.msg-time {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  margin-top: 4px;
+  padding: 0 4px;
+}
+.msg-user .msg-time { text-align: right; }
+.msg-ai .msg-time { text-align: left; }
+
+/* 消息内图片 */
+.msg-img {
+  max-width: 200px;
+  max-height: 200px;
+  border-radius: 6px;
+  cursor: pointer;
+  object-fit: cover;
+}
+
+/* 消息内视频 */
+.msg-video {
+  max-width: 320px;
+  max-height: 240px;
+  border-radius: 6px;
+  margin-top: 8px;
+}
+
+/* 消息内音频 */
+.msg-audio {
+  margin-top: 8px;
+  max-width: 280px;
+  height: 36px;
+}
+
+/* 文件卡片 */
+.msg-file-card {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  margin-top: 8px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-primary);
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
+  transition: background 0.15s;
+}
+.msg-file-card:hover {
+  background: var(--bg-hover);
+}
+.msg-file-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+.msg-file-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.msg-file-name {
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
+}
+.msg-file-size {
+  font-size: 11px;
+  color: var(--text-tertiary);
+}
+
 .chat-lightbox-img {
   max-width: 90%;
   max-height: 90%;

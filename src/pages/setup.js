@@ -5,6 +5,7 @@
 import { api } from '../lib/tauri-api.js'
 import { showUpgradeModal } from '../components/modal.js'
 import { toast } from '../components/toast.js'
+import { setUpgrading } from '../lib/app-state.js'
 
 export async function render() {
   const page = document.createElement('div')
@@ -177,10 +178,17 @@ function bindEvents(page, nodeOk) {
     const modal = showUpgradeModal()
     let unlistenLog, unlistenProgress
 
+    setUpgrading(true)
     try {
-      const { listen } = await import('@tauri-apps/api/event')
-      unlistenLog = await listen('upgrade-log', (e) => modal.appendLog(e.payload))
-      unlistenProgress = await listen('upgrade-progress', (e) => modal.setProgress(e.payload))
+      if (window.__TAURI_INTERNALS__) {
+        try {
+          const { listen } = await import('@tauri-apps/api/event')
+          unlistenLog = await listen('upgrade-log', (e) => modal.appendLog(e.payload))
+          unlistenProgress = await listen('upgrade-progress', (e) => modal.setProgress(e.payload))
+        } catch { /* Web 模式无 Tauri event */ }
+      } else {
+        modal.appendLog('Web 模式：安装日志不可用，请等待完成...')
+      }
 
       // 先设置镜像源
       if (registry) {
@@ -206,6 +214,7 @@ function bindEvents(page, nodeOk) {
       modal.appendLog(String(e))
       modal.setError('安装失败')
     } finally {
+      setUpgrading(false)
       unlistenLog?.()
       unlistenProgress?.()
     }

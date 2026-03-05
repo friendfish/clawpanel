@@ -29,6 +29,11 @@ release_body.md.bak
 
 # 内部开发文档（不入公开仓）
 BLOCKING_ISSUES_REPORT.md
+__clawapp-chat-ref.js
+
+# 大文件（宣传视频）
+docs/promo-video.mp4
+docs/promo-web.mp4
 
 # IDE / 编辑器
 .idea/

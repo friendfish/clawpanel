@@ -33,11 +33,13 @@ export async function render() {
   page.querySelector('#btn-save-gw').onclick = async () => {
     const btn = page.querySelector('#btn-save-gw')
     btn.disabled = true
+    btn.classList.add('btn-loading')
     btn.textContent = '保存中...'
     try {
       await saveConfig(page, state)
     } finally {
       btn.disabled = false
+      btn.classList.remove('btn-loading')
       btn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="16" height="16"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><path d="M17 21v-8H7v8"/><path d="M7 3v5h8"/></svg> 保存并生效`
     }
   }

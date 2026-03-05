@@ -40,13 +40,14 @@ const COMMANDS = [
 let _sessionKey = null, _page = null, _messagesEl = null, _textarea = null
 let _sendBtn = null, _statusDot = null, _typingEl = null, _scrollBtn = null
 let _sessionListEl = null, _cmdPanelEl = null, _attachPreviewEl = null, _fileInputEl = null
-let _currentAiBubble = null, _currentAiText = '', _currentAiImages = [], _currentRunId = null
-let _isStreaming = false, _isSending = false, _messageQueue = []
+let _currentAiBubble = null, _currentAiText = '', _currentAiImages = [], _currentAiVideos = [], _currentAiAudios = [], _currentAiFiles = [], _currentRunId = null
+let _isStreaming = false, _isSending = false, _messageQueue = [], _streamStartTime = 0
 let _lastRenderTime = 0, _renderPending = false, _lastHistoryHash = ''
 let _streamSafetyTimer = null, _unsubEvent = null, _unsubReady = null, _unsubStatus = null
 let _pageActive = false
 let _errorTimer = null, _lastErrorMsg = null
 let _attachments = []
+let _hasEverConnected = false
 
 export async function render() {
   const page = document.createElement('div')
@@ -317,6 +318,7 @@ async function connectGateway() {
       const overlay = document.getElementById('chat-connect-overlay')
       const desc = document.getElementById('chat-connect-desc')
       if (status === 'ready' || status === 'connected') {
+        _hasEverConnected = true
         if (bar) bar.style.display = 'none'
         if (overlay) overlay.style.display = 'none'
       } else if (status === 'error') {
@@ -327,7 +329,12 @@ async function connectGateway() {
           if (desc) desc.textContent = errorMsg || '连接 Gateway 失败'
         }
       } else if (status === 'reconnecting' || status === 'disconnected') {
-        if (bar) { bar.textContent = '连接已断开，正在重连...'; bar.style.display = 'flex' }
+        // 首次连接或多次重连失败时，显示引导遮罩而非底部小条
+        if (!_hasEverConnected) {
+          if (overlay) { overlay.style.display = 'flex'; if (desc) desc.textContent = '正在连接 Gateway...' }
+        } else {
+          if (bar) { bar.textContent = '连接已断开，正在重连...'; bar.style.display = 'flex' }
+        }
       } else {
         if (bar) bar.style.display = 'none'
       }
@@ -380,7 +387,7 @@ async function connectGateway() {
     // 未连接，发起新连接
     const config = await api.readOpenclawConfig()
     const gw = config?.gateway || {}
-    const host = `127.0.0.1:${gw.port || 18789}`
+    const host = window.__TAURI_INTERNALS__ ? `127.0.0.1:${gw.port || 18789}` : location.host
     const token = gw.auth?.token || gw.authToken || ''
     wsClient.connect(host, token)
   } catch (e) {
@@ -592,7 +599,10 @@ function sendMessage() {
 
 async function doSend(text, attachments = []) {
   appendUserMessage(text, attachments)
-  saveMessage({ id: uuid(), sessionKey: _sessionKey, role: 'user', content: text, timestamp: Date.now() })
+  saveMessage({
+    id: uuid(), sessionKey: _sessionKey, role: 'user', content: text, timestamp: Date.now(),
+    attachments: attachments?.length ? attachments.map(a => ({ category: a.category || 'image', mimeType: a.mimeType || '', content: a.content || '', url: a.url || '' })) : undefined
+  })
   showTyping(true)
   _isSending = true
   try {
@@ -635,15 +645,32 @@ function handleChatEvent(payload) {
   if (state === 'delta') {
     const c = extractChatContent(payload.message)
     if (c?.images?.length) _currentAiImages = c.images
+    if (c?.videos?.length) _currentAiVideos = c.videos
+    if (c?.audios?.length) _currentAiAudios = c.audios
+    if (c?.files?.length) _currentAiFiles = c.files
     if (c?.text && c.text.length > _currentAiText.length) {
       showTyping(false)
       if (!_currentAiBubble) {
         _currentAiBubble = createStreamBubble()
         _currentRunId = payload.runId
         _isStreaming = true
+        _streamStartTime = Date.now()
         updateSendState()
       }
       _currentAiText = c.text
+      // 每次收到 delta 重置安全超时（90s 无新 delta 则强制结束）
+      clearTimeout(_streamSafetyTimer)
+      _streamSafetyTimer = setTimeout(() => {
+        if (_isStreaming) {
+          console.warn('[chat] 流式输出超时（90s 无新数据），强制结束')
+          if (_currentAiBubble && _currentAiText) {
+            _currentAiBubble.innerHTML = renderMarkdown(_currentAiText)
+          }
+          appendSystemMessage('输出超时，已自动结束')
+          resetStreamState()
+          processMessageQueue()
+        }
+      }, 90000)
       throttledRender()
     }
     return
@@ -653,8 +680,14 @@ function handleChatEvent(payload) {
     const c = extractChatContent(payload.message)
     const finalText = c?.text || ''
     const finalImages = c?.images || []
+    const finalVideos = c?.videos || []
+    const finalAudios = c?.audios || []
+    const finalFiles = c?.files || []
     if (finalImages.length) _currentAiImages = finalImages
-    const hasContent = finalText || _currentAiImages.length
+    if (finalVideos.length) _currentAiVideos = finalVideos
+    if (finalAudios.length) _currentAiAudios = finalAudios
+    if (finalFiles.length) _currentAiFiles = finalFiles
+    const hasContent = finalText || _currentAiImages.length || _currentAiVideos.length || _currentAiAudios.length || _currentAiFiles.length
     // 忽略空 final（Gateway 会为一条消息触发多个 run，部分是空 final）
     if (!_currentAiBubble && !hasContent) return
     showTyping(false)
@@ -666,9 +699,32 @@ function handleChatEvent(payload) {
     if (_currentAiBubble) {
       if (_currentAiText) _currentAiBubble.innerHTML = renderMarkdown(_currentAiText)
       appendImagesToEl(_currentAiBubble, _currentAiImages)
+      appendVideosToEl(_currentAiBubble, _currentAiVideos)
+      appendAudiosToEl(_currentAiBubble, _currentAiAudios)
+      appendFilesToEl(_currentAiBubble, _currentAiFiles)
     }
-    if (_currentAiText) {
-      saveMessage({ id: payload.runId || uuid(), sessionKey: _sessionKey, role: 'assistant', content: _currentAiText, timestamp: Date.now() })
+    // 添加时间戳 + 耗时
+    const wrapper = _currentAiBubble?.parentElement
+    if (wrapper) {
+      const time = document.createElement('div')
+      time.className = 'msg-time'
+      let timeStr = formatTime(new Date())
+      // 计算响应耗时
+      if (payload.durationMs) {
+        timeStr += ` · ${(payload.durationMs / 1000).toFixed(1)}s`
+      } else if (_streamStartTime) {
+        const dur = ((Date.now() - _streamStartTime) / 1000).toFixed(1)
+        timeStr += ` · ${dur}s`
+      }
+      time.textContent = timeStr
+      wrapper.appendChild(time)
+    }
+    if (_currentAiText || _currentAiImages.length) {
+      saveMessage({
+        id: payload.runId || uuid(), sessionKey: _sessionKey, role: 'assistant',
+        content: _currentAiText, timestamp: Date.now(),
+        attachments: _currentAiImages.map(i => ({ category: 'image', mimeType: i.mediaType || 'image/png', url: i.url, content: i.data })).filter(a => a.url || a.content)
+      })
     }
     resetStreamState()
     processMessageQueue()
@@ -724,24 +780,73 @@ function handleChatEvent(payload) {
   }
 }
 
-/** 从 Gateway message 对象提取文本和图片（参照 clawapp extractContent） */
+/** 从 Gateway message 对象提取文本和所有媒体（参照 clawapp extractContent） */
 function extractChatContent(message) {
   if (!message || typeof message !== 'object') return null
   const content = message.content
-  const images = []
-  if (typeof content === 'string') return { text: content, images }
+  if (typeof content === 'string') return { text: stripThinkingTags(content), images: [], videos: [], audios: [], files: [] }
   if (Array.isArray(content)) {
-    const texts = []
+    const texts = [], images = [], videos = [], audios = [], files = []
     for (const block of content) {
       if (block.type === 'text' && typeof block.text === 'string') texts.push(block.text)
-      if (block.type === 'image') images.push(block)
-      if (block.type === 'image_url') images.push(block)
+      else if (block.type === 'image' && !block.omitted) {
+        if (block.data) images.push({ mediaType: block.mimeType || 'image/png', data: block.data })
+        else if (block.source?.type === 'base64' && block.source.data) images.push({ mediaType: block.source.media_type || 'image/png', data: block.source.data })
+        else if (block.url || block.source?.url) images.push({ url: block.url || block.source.url, mediaType: block.mimeType || 'image/png' })
+      }
+      else if (block.type === 'image_url' && block.image_url?.url) images.push({ url: block.image_url.url, mediaType: 'image/png' })
+      else if (block.type === 'video') {
+        if (block.data) videos.push({ mediaType: block.mimeType || 'video/mp4', data: block.data })
+        else if (block.url) videos.push({ url: block.url, mediaType: block.mimeType || 'video/mp4' })
+      }
+      else if (block.type === 'audio' || block.type === 'voice') {
+        if (block.data) audios.push({ mediaType: block.mimeType || 'audio/mpeg', data: block.data, duration: block.duration })
+        else if (block.url) audios.push({ url: block.url, mediaType: block.mimeType || 'audio/mpeg', duration: block.duration })
+      }
+      else if (block.type === 'file' || block.type === 'document') {
+        files.push({ url: block.url || '', name: block.fileName || block.name || '文件', mimeType: block.mimeType || '', size: block.size, data: block.data })
+      }
     }
-    const text = texts.length ? texts.join('\n') : ''
-    return { text, images }
+    // 从 mediaUrl/mediaUrls 提取
+    const mediaUrls = message.mediaUrls || (message.mediaUrl ? [message.mediaUrl] : [])
+    for (const url of mediaUrls) {
+      if (!url) continue
+      if (/\.(mp4|webm|mov|mkv)(\?|$)/i.test(url)) videos.push({ url, mediaType: 'video/mp4' })
+      else if (/\.(mp3|wav|ogg|m4a|aac|flac)(\?|$)/i.test(url)) audios.push({ url, mediaType: 'audio/mpeg' })
+      else if (/\.(jpe?g|png|gif|webp|heic|svg)(\?|$)/i.test(url)) images.push({ url, mediaType: 'image/png' })
+      else files.push({ url, name: url.split('/').pop().split('?')[0] || '文件', mimeType: '' })
+    }
+    const text = texts.length ? stripThinkingTags(texts.join('\n')) : ''
+    return { text, images, videos, audios, files }
   }
-  if (typeof message.text === 'string') return { text: message.text, images }
+  if (typeof message.text === 'string') return { text: stripThinkingTags(message.text), images: [], videos: [], audios: [], files: [] }
   return null
+}
+
+function stripThinkingTags(text) {
+  return text
+    .replace(/<\s*think(?:ing)?\s*>[\s\S]*?<\s*\/\s*think(?:ing)?\s*>/gi, '')
+    .replace(/Conversation info \(untrusted metadata\):\s*```json[\s\S]*?```\s*/gi, '')
+    .replace(/\[Queued messages while agent was busy\]\s*---\s*Queued #\d+\s*/gi, '')
+    .trim()
+}
+
+function formatTime(date) {
+  const now = new Date()
+  const h = date.getHours().toString().padStart(2, '0')
+  const m = date.getMinutes().toString().padStart(2, '0')
+  const isToday = date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth() && date.getDate() === now.getDate()
+  if (isToday) return `${h}:${m}`
+  const mon = (date.getMonth() + 1).toString().padStart(2, '0')
+  const day = date.getDate().toString().padStart(2, '0')
+  return `${mon}-${day} ${h}:${m}`
+}
+
+function formatFileSize(bytes) {
+  if (!bytes || bytes <= 0) return ''
+  if (bytes < 1024) return bytes + ' B'
+  if (bytes < 1024 * 1024) return (bytes / 1024).toFixed(1) + ' KB'
+  return (bytes / (1024 * 1024)).toFixed(1) + ' MB'
 }
 
 /** 创建流式 AI 气泡 */
@@ -783,17 +888,24 @@ function doRender() {
 
 function resetStreamState() {
   clearTimeout(_streamSafetyTimer)
-  if (_currentAiBubble && (_currentAiText || _currentAiImages.length)) {
+  if (_currentAiBubble && (_currentAiText || _currentAiImages.length || _currentAiVideos.length || _currentAiAudios.length || _currentAiFiles.length)) {
     _currentAiBubble.innerHTML = renderMarkdown(_currentAiText)
     appendImagesToEl(_currentAiBubble, _currentAiImages)
+    appendVideosToEl(_currentAiBubble, _currentAiVideos)
+    appendAudiosToEl(_currentAiBubble, _currentAiAudios)
+    appendFilesToEl(_currentAiBubble, _currentAiFiles)
   }
   _renderPending = false
   _lastRenderTime = 0
   _currentAiBubble = null
   _currentAiText = ''
   _currentAiImages = []
+  _currentAiVideos = []
+  _currentAiAudios = []
+  _currentAiFiles = []
   _currentRunId = null
   _isStreaming = false
+  _streamStartTime = 0
   _lastErrorMsg = null
   _errorTimer = null
   showTyping(false)
@@ -804,13 +916,19 @@ function resetStreamState() {
 
 async function loadHistory() {
   if (!_sessionKey) return
-  if (isStorageAvailable()) {
+  const hasExisting = _messagesEl?.querySelector('.msg')
+  if (!hasExisting && isStorageAvailable()) {
     const local = await getLocalMessages(_sessionKey, 200)
     if (local.length) {
       clearMessages()
       local.forEach(msg => {
-        if (msg.role === 'user') appendUserMessage(msg.content || '')
-        else appendAiMessage(msg.content || '')
+        if (!msg.content && !msg.attachments?.length) return
+        const msgTime = msg.timestamp ? new Date(msg.timestamp) : new Date()
+        if (msg.role === 'user') appendUserMessage(msg.content || '', msg.attachments || null, msgTime)
+        else if (msg.role === 'assistant') {
+          const images = (msg.attachments || []).filter(a => a.category === 'image').map(a => ({ mediaType: a.mimeType, data: a.content, url: a.url }))
+          appendAiMessage(msg.content || '', msgTime, images)
+        }
       })
       scrollToBottom()
     }
@@ -824,23 +942,41 @@ async function loadHistory() {
     }
     const deduped = dedupeHistory(result.messages)
     const hash = deduped.map(m => `${m.role}:${(m.text || '').length}`).join('|')
-    if (hash === _lastHistoryHash && _messagesEl.querySelector('.msg')) return
+    if (hash === _lastHistoryHash && hasExisting) return
     _lastHistoryHash = hash
+
+    // 正在发送/流式输出时不全量重绘，避免覆盖本地乐观渲染
+    if (hasExisting && (_isSending || _isStreaming || _messageQueue.length > 0)) {
+      saveMessages(result.messages.map(m => {
+        const c = extractContent(m)
+        return { id: m.id || uuid(), sessionKey: _sessionKey, role: m.role, content: c?.text || '', timestamp: m.timestamp || Date.now() }
+      }))
+      return
+    }
+
     clearMessages()
+    let hasOmittedImages = false
     deduped.forEach(msg => {
+      if (!msg.text && !msg.images?.length && !msg.videos?.length && !msg.audios?.length && !msg.files?.length) return
+      const msgTime = msg.timestamp ? new Date(msg.timestamp) : new Date()
       if (msg.role === 'user') {
-        const userImages = msg.images?.length ? msg.images.map(i => ({
+        const userAtts = msg.images?.length ? msg.images.map(i => ({
           mimeType: i.mediaType || i.media_type || 'image/png',
           content: i.data || i.source?.data || '',
+          category: 'image',
         })).filter(a => a.content) : []
-        appendUserMessage(msg.text, userImages)
+        if (msg.images?.length && !userAtts.length) hasOmittedImages = true
+        appendUserMessage(msg.text, userAtts, msgTime)
       } else if (msg.role === 'assistant') {
-        appendAiMessage(msg.text, msg.images)
+        appendAiMessage(msg.text, msgTime, msg.images, msg.videos, msg.audios, msg.files)
       }
     })
+    if (hasOmittedImages) {
+      appendSystemMessage('部分历史图片无法显示（Gateway 不保留图片原始数据，仅当前会话内可见）')
+    }
     saveMessages(result.messages.map(m => {
       const c = extractContent(m)
-      return { id: m.id || uuid(), sessionKey: _sessionKey, role: m.role, content: c.text || '', timestamp: m.timestamp || Date.now() }
+      return { id: m.id || uuid(), sessionKey: _sessionKey, role: m.role, content: c?.text || '', timestamp: m.timestamp || Date.now() }
     }))
     scrollToBottom()
   } catch (e) {
@@ -854,55 +990,109 @@ function dedupeHistory(messages) {
   for (const msg of messages) {
     if (msg.role === 'toolResult') continue
     const c = extractContent(msg)
-    if (!c.text && !c.images.length) continue
+    if (!c.text && !c.images.length && !c.videos.length && !c.audios.length && !c.files.length) continue
     const last = deduped[deduped.length - 1]
     if (last && last.role === msg.role) {
       if (msg.role === 'user' && last.text === c.text) continue
       if (msg.role === 'assistant') {
+        // 同文本去重（Gateway 重试产生的重复回复）
+        if (c.text && last.text === c.text) continue
+        // 不同文本则合并
         last.text = [last.text, c.text].filter(Boolean).join('\n')
         last.images = [...(last.images || []), ...c.images]
+        last.videos = [...(last.videos || []), ...c.videos]
+        last.audios = [...(last.audios || []), ...c.audios]
+        last.files = [...(last.files || []), ...c.files]
         continue
       }
     }
-    deduped.push({ role: msg.role, text: c.text, images: c.images, timestamp: msg.timestamp })
+    deduped.push({ role: msg.role, text: c.text, images: c.images, videos: c.videos, audios: c.audios, files: c.files, timestamp: msg.timestamp })
   }
   return deduped
 }
 
 function extractContent(msg) {
-  const images = []
   if (Array.isArray(msg.content)) {
-    const texts = []
+    const texts = [], images = [], videos = [], audios = [], files = []
     for (const block of msg.content) {
       if (block.type === 'text' && typeof block.text === 'string') texts.push(block.text)
-      if (block.type === 'image') images.push(block)
-      if (block.type === 'image_url') images.push(block)
+      else if (block.type === 'image' && !block.omitted) {
+        if (block.data) images.push({ mediaType: block.mimeType || 'image/png', data: block.data })
+        else if (block.source?.type === 'base64' && block.source.data) images.push({ mediaType: block.source.media_type || 'image/png', data: block.source.data })
+        else if (block.url || block.source?.url) images.push({ url: block.url || block.source.url, mediaType: block.mimeType || 'image/png' })
+      }
+      else if (block.type === 'image_url' && block.image_url?.url) images.push({ url: block.image_url.url, mediaType: 'image/png' })
+      else if (block.type === 'video') {
+        if (block.data) videos.push({ mediaType: block.mimeType || 'video/mp4', data: block.data })
+        else if (block.url) videos.push({ url: block.url, mediaType: block.mimeType || 'video/mp4' })
+      }
+      else if (block.type === 'audio' || block.type === 'voice') {
+        if (block.data) audios.push({ mediaType: block.mimeType || 'audio/mpeg', data: block.data, duration: block.duration })
+        else if (block.url) audios.push({ url: block.url, mediaType: block.mimeType || 'audio/mpeg', duration: block.duration })
+      }
+      else if (block.type === 'file' || block.type === 'document') {
+        files.push({ url: block.url || '', name: block.fileName || block.name || '文件', mimeType: block.mimeType || '', size: block.size, data: block.data })
+      }
     }
-    return { text: texts.join('\n'), images }
+    const mediaUrls = msg.mediaUrls || (msg.mediaUrl ? [msg.mediaUrl] : [])
+    for (const url of mediaUrls) {
+      if (!url) continue
+      if (/\.(mp4|webm|mov|mkv)(\?|$)/i.test(url)) videos.push({ url, mediaType: 'video/mp4' })
+      else if (/\.(mp3|wav|ogg|m4a|aac|flac)(\?|$)/i.test(url)) audios.push({ url, mediaType: 'audio/mpeg' })
+      else if (/\.(jpe?g|png|gif|webp|heic|svg)(\?|$)/i.test(url)) images.push({ url, mediaType: 'image/png' })
+      else files.push({ url, name: url.split('/').pop().split('?')[0] || '文件', mimeType: '' })
+    }
+    return { text: stripThinkingTags(texts.join('\n')), images, videos, audios, files }
   }
   const text = typeof msg.text === 'string' ? msg.text : (typeof msg.content === 'string' ? msg.content : '')
-  return { text, images }
+  return { text: stripThinkingTags(text), images: [], videos: [], audios: [], files: [] }
 }
 
 // ── DOM 操作 ──
 
-function appendUserMessage(text, attachments = []) {
+function appendUserMessage(text, attachments = [], msgTime) {
   const wrap = document.createElement('div')
   wrap.className = 'msg msg-user'
   const bubble = document.createElement('div')
   bubble.className = 'msg-bubble'
 
-  if (attachments.length > 0) {
-    const imgContainer = document.createElement('div')
-    imgContainer.style.cssText = 'display:flex;gap:4px;margin-bottom:8px;flex-wrap:wrap'
+  if (attachments && attachments.length > 0) {
+    const mediaContainer = document.createElement('div')
+    mediaContainer.style.cssText = 'display:flex;gap:4px;margin-bottom:8px;flex-wrap:wrap'
     attachments.forEach(att => {
-      const img = document.createElement('img')
-      img.src = `data:${att.mimeType};base64,${att.content}`
-      img.style.cssText = 'max-width:200px;max-height:200px;border-radius:4px;cursor:pointer'
-      img.onclick = () => showLightbox(img.src)
-      imgContainer.appendChild(img)
+      const cat = att.category || att.type || 'image'
+      const src = att.data ? `data:${att.mimeType || att.mediaType || 'image/png'};base64,${att.data}`
+        : att.content ? `data:${att.mimeType || 'image/png'};base64,${att.content}`
+        : att.url || ''
+      if (cat === 'image' && src) {
+        const img = document.createElement('img')
+        img.src = src
+        img.className = 'msg-img'
+        img.onclick = () => showLightbox(img.src)
+        mediaContainer.appendChild(img)
+      } else if (cat === 'video' && src) {
+        const video = document.createElement('video')
+        video.src = src
+        video.className = 'msg-video'
+        video.controls = true
+        video.preload = 'metadata'
+        video.playsInline = true
+        mediaContainer.appendChild(video)
+      } else if (cat === 'audio' && src) {
+        const audio = document.createElement('audio')
+        audio.src = src
+        audio.className = 'msg-audio'
+        audio.controls = true
+        audio.preload = 'metadata'
+        mediaContainer.appendChild(audio)
+      } else if (att.fileName || att.name) {
+        const card = document.createElement('div')
+        card.className = 'msg-file-card'
+        card.innerHTML = `<span class="msg-file-icon">📎</span><span class="msg-file-name">${att.fileName || att.name}</span>`
+        mediaContainer.appendChild(card)
+      }
     })
-    bubble.appendChild(imgContainer)
+    if (mediaContainer.children.length) bubble.appendChild(mediaContainer)
   }
 
   if (text) {
@@ -911,19 +1101,35 @@ function appendUserMessage(text, attachments = []) {
     bubble.appendChild(textNode)
   }
 
+  const time = document.createElement('div')
+  time.className = 'msg-time'
+  time.textContent = formatTime(msgTime || new Date())
+
   wrap.appendChild(bubble)
+  wrap.appendChild(time)
   _messagesEl.insertBefore(wrap, _typingEl)
   scrollToBottom()
 }
 
-function appendAiMessage(text, images) {
+function appendAiMessage(text, msgTime, images, videos, audios, files) {
   const wrap = document.createElement('div')
   wrap.className = 'msg msg-ai'
   const bubble = document.createElement('div')
   bubble.className = 'msg-bubble'
   bubble.innerHTML = renderMarkdown(text)
   appendImagesToEl(bubble, images)
+  appendVideosToEl(bubble, videos)
+  appendAudiosToEl(bubble, audios)
+  appendFilesToEl(bubble, files)
+  // 图片点击灯箱
+  bubble.querySelectorAll('img').forEach(img => { if (!img.onclick) img.onclick = () => showLightbox(img.src) })
+
+  const time = document.createElement('div')
+  time.className = 'msg-time'
+  time.textContent = formatTime(msgTime || new Date())
+
   wrap.appendChild(bubble)
+  wrap.appendChild(time)
   _messagesEl.insertBefore(wrap, _typingEl)
   scrollToBottom()
 }
@@ -955,6 +1161,62 @@ function appendImagesToEl(el, images) {
     container.appendChild(imgEl)
   })
   if (container.children.length) el.appendChild(container)
+}
+
+/** 渲染视频到消息气泡 */
+function appendVideosToEl(el, videos) {
+  if (!videos?.length) return
+  videos.forEach(vid => {
+    const videoEl = document.createElement('video')
+    videoEl.className = 'msg-video'
+    videoEl.controls = true
+    videoEl.preload = 'metadata'
+    videoEl.playsInline = true
+    if (vid.data) videoEl.src = `data:${vid.mediaType};base64,${vid.data}`
+    else if (vid.url) videoEl.src = vid.url
+    el.appendChild(videoEl)
+  })
+}
+
+/** 渲染音频到消息气泡 */
+function appendAudiosToEl(el, audios) {
+  if (!audios?.length) return
+  audios.forEach(aud => {
+    const audioEl = document.createElement('audio')
+    audioEl.className = 'msg-audio'
+    audioEl.controls = true
+    audioEl.preload = 'metadata'
+    if (aud.data) audioEl.src = `data:${aud.mediaType};base64,${aud.data}`
+    else if (aud.url) audioEl.src = aud.url
+    el.appendChild(audioEl)
+  })
+}
+
+/** 渲染文件卡片到消息气泡 */
+function appendFilesToEl(el, files) {
+  if (!files?.length) return
+  files.forEach(f => {
+    const card = document.createElement('div')
+    card.className = 'msg-file-card'
+    const ext = (f.name || '').split('.').pop().toLowerCase()
+    const iconMap = { pdf: '📄', doc: '📝', docx: '📝', txt: '📃', md: '📃', json: '📋', csv: '📊', zip: '📦', rar: '📦' }
+    const icon = iconMap[ext] || '📎'
+    const size = f.size ? formatFileSize(f.size) : ''
+    card.innerHTML = `<span class="msg-file-icon">${icon}</span><div class="msg-file-info"><span class="msg-file-name">${f.name || '文件'}</span>${size ? `<span class="msg-file-size">${size}</span>` : ''}</div>`
+    if (f.url) {
+      card.style.cursor = 'pointer'
+      card.onclick = () => window.open(f.url, '_blank')
+    } else if (f.data) {
+      card.style.cursor = 'pointer'
+      card.onclick = () => {
+        const a = document.createElement('a')
+        a.href = `data:${f.mimeType || 'application/octet-stream'};base64,${f.data}`
+        a.download = f.name || '文件'
+        a.click()
+      }
+    }
+    el.appendChild(card)
+  })
 }
 
 /** 图片灯箱查看 */
@@ -1036,6 +1298,9 @@ export function cleanup() {
   _currentAiBubble = null
   _currentAiText = ''
   _currentAiImages = []
+  _currentAiVideos = []
+  _currentAiAudios = []
+  _currentAiFiles = []
   _currentRunId = null
   _isStreaming = false
   _isSending = false

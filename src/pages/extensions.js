@@ -227,13 +227,15 @@ function bindEvents(page) {
 
 async function handleCftunnelAction(page, action) {
   const label = action === 'up' ? '启动' : '停止'
+  const btn = page.querySelector(`[data-action="cftunnel-${action === 'up' ? 'up' : 'down'}"]`)
+  if (btn) { btn.classList.add('btn-loading'); btn.disabled = true; btn.textContent = `${label}中...` }
   try {
-    toast(`正在${label}隧道...`, 'info')
     await api.cftunnelAction(action)
     toast(`隧道已${label}`, 'success')
     await loadCftunnel(page)
   } catch (e) {
     toast(`${label}失败: ${e}`, 'error')
+    if (btn) { btn.classList.remove('btn-loading'); btn.disabled = false; btn.textContent = `${label}隧道` }
   }
 }
 
@@ -284,18 +286,22 @@ async function handleInstallCftunnel(page) {
 
   let unlistenLog, unlistenProgress
   try {
-    const { listen } = await import('@tauri-apps/api/event')
-
-    unlistenLog = await listen('install-log', (e) => {
-      logBox.textContent += e.payload + '\n'
-      logBox.scrollTop = logBox.scrollHeight
-    })
-
-    unlistenProgress = await listen('install-progress', (e) => {
-      const progress = e.payload
-      progressFill.style.width = progress + '%'
-      progressText.textContent = `安装中... ${progress}%`
-    })
+    if (window.__TAURI_INTERNALS__) {
+      try {
+        const { listen } = await import('@tauri-apps/api/event')
+        unlistenLog = await listen('install-log', (e) => {
+          logBox.textContent += e.payload + '\n'
+          logBox.scrollTop = logBox.scrollHeight
+        })
+        unlistenProgress = await listen('install-progress', (e) => {
+          const progress = e.payload
+          progressFill.style.width = progress + '%'
+          progressText.textContent = `安装中... ${progress}%`
+        })
+      } catch { /* Web 模式无 Tauri event */ }
+    } else {
+      logBox.textContent += 'Web 模式：安装日志不可用，请等待完成...\n'
+    }
 
     await api.installCftunnel()
 
@@ -338,18 +344,22 @@ async function handleInstallClawapp(page) {
 
   let unlistenLog, unlistenProgress
   try {
-    const { listen } = await import('@tauri-apps/api/event')
-
-    unlistenLog = await listen('install-log', (e) => {
-      logBox.textContent += e.payload + '\n'
-      logBox.scrollTop = logBox.scrollHeight
-    })
-
-    unlistenProgress = await listen('install-progress', (e) => {
-      const progress = e.payload
-      progressFill.style.width = progress + '%'
-      progressText.textContent = `安装中... ${progress}%`
-    })
+    if (window.__TAURI_INTERNALS__) {
+      try {
+        const { listen } = await import('@tauri-apps/api/event')
+        unlistenLog = await listen('install-log', (e) => {
+          logBox.textContent += e.payload + '\n'
+          logBox.scrollTop = logBox.scrollHeight
+        })
+        unlistenProgress = await listen('install-progress', (e) => {
+          const progress = e.payload
+          progressFill.style.width = progress + '%'
+          progressText.textContent = `安装中... ${progress}%`
+        })
+      } catch { /* Web 模式无 Tauri event */ }
+    } else {
+      logBox.textContent += 'Web 模式：安装日志不可用，请等待完成...\n'
+    }
 
     await api.installClawapp()
 

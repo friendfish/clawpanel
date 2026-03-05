@@ -115,12 +115,8 @@ fn patch_gateway_origins() {
         return;
     };
 
-    // Tauri v2: macOS/Linux 用 tauri://localhost，Windows 用 https://tauri.localhost
-    let origins = serde_json::json!([
-        "tauri://localhost",
-        "https://tauri.localhost",
-        "http://localhost"
-    ]);
+    // 放行全部 origin，确保 Tauri 正式/开发模式、Web 模式都能连接
+    let origins = serde_json::json!(["*"]);
 
     if let Some(obj) = config.as_object_mut() {
         let gateway = obj

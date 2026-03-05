@@ -1,3 +1,25 @@
+/* 按钮加载状态 — 任意按钮加上 .btn-loading 即可获得内联 spinner */
+.btn.btn-loading {
+  pointer-events: none;
+  opacity: 0.75;
+}
+.btn.btn-loading::before {
+  content: '';
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: btn-spin 0.7s linear infinite;
+  margin-right: 6px;
+  vertical-align: -2px;
+  flex-shrink: 0;
+}
+@keyframes btn-spin {
+  to { transform: rotate(360deg); }
+}
+
 /* 骨架屏 */
 .skeleton {
   background: linear-gradient(90deg, var(--bg-secondary) 25%, var(--bg-tertiary, var(--bg-card-hover)) 50%, var(--bg-secondary) 75%);

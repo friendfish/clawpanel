@@ -292,9 +292,9 @@ function renderModelCards(providerKey, models, primary, search) {
     const testTime = m.lastTestAt ? formatTestTime(m.lastTestAt) : ''
     if (testTime) meta.push(testTime)
     return `
-      <div class="model-card" data-model-id="${id}" data-full="${full}" draggable="true"
-           style="background:${bgColor};border:1px solid ${borderColor};padding:10px 14px;border-radius:var(--radius-md);margin-bottom:8px;display:flex;align-items:center;gap:10px;cursor:grab">
-        <span style="color:var(--text-tertiary);cursor:grab;user-select:none;font-size:16px;padding-right:4px">⋮⋮</span>
+      <div class="model-card" data-model-id="${id}" data-full="${full}"
+           style="background:${bgColor};border:1px solid ${borderColor};padding:10px 14px;border-radius:var(--radius-md);margin-bottom:8px;display:flex;align-items:center;gap:10px">
+        <span class="drag-handle" style="color:var(--text-tertiary);cursor:grab;user-select:none;font-size:16px;padding:4px;touch-action:none">⋮⋮</span>
         <input type="checkbox" class="model-checkbox" data-model-id="${id}" style="flex-shrink:0;cursor:pointer">
         <div style="flex:1;min-width:0">
           <div style="display:flex;align-items:center;gap:8px">
@@ -363,28 +363,45 @@ function autoSave(state) {
   _saveTimer = setTimeout(() => doAutoSave(state), 300)
 }
 
+// 仅保存配置，不重启 Gateway（用于测试结果等元数据持久化）
+async function saveConfigOnly(state) {
+  try {
+    const primary = getCurrentPrimary(state.config)
+    if (primary) applyDefaultModel(state)
+    await api.writeOpenclawConfig(state.config)
+  } catch (e) {
+    toast('保存失败: ' + e, 'error')
+  }
+}
+
 async function doAutoSave(state) {
   try {
     const primary = getCurrentPrimary(state.config)
     if (primary) applyDefaultModel(state)
     await api.writeOpenclawConfig(state.config)
 
-    // 提示用户需要重启 Gateway
-    const restartBtn = document.createElement('button')
-    restartBtn.className = 'btn btn-sm btn-primary'
-    restartBtn.textContent = '立即重启'
-    restartBtn.style.marginLeft = '8px'
-    restartBtn.onclick = async () => {
-      try {
-        toast('正在重启 Gateway...', 'info')
-        await api.restartGateway()
-        toast('Gateway 重启成功', 'success')
-      } catch (e) {
-        toast('重启失败: ' + e.message, 'error')
+    // 重启 Gateway 使配置生效（Gateway 不支持 SIGHUP 热重载）
+    toast('配置已保存，正在重启 Gateway...', 'info')
+    try {
+      await api.restartGateway()
+      toast('配置已生效，Gateway 已重启', 'success')
+    } catch (e) {
+      // 重启失败时提供手动重试按钮
+      const restartBtn = document.createElement('button')
+      restartBtn.className = 'btn btn-sm btn-primary'
+      restartBtn.textContent = '重试'
+      restartBtn.style.marginLeft = '8px'
+      restartBtn.onclick = async () => {
+        try {
+          toast('正在重启 Gateway...', 'info')
+          await api.restartGateway()
+          toast('Gateway 重启成功', 'success')
+        } catch (e2) {
+          toast('重启失败: ' + e2.message, 'error')
+        }
       }
+      toast('配置已保存，但 Gateway 重启失败: ' + e.message, 'warning', { action: restartBtn })
     }
-
-    toast('配置已保存，需要重启 Gateway 生效', 'warning', { action: restartBtn })
   } catch (e) {
     toast('自动保存失败: ' + e, 'error')
   }
@@ -426,54 +443,98 @@ function bindProviderButtons(listEl, page, state) {
     }
   })
 
-  // 绑定拖拽排序 (Drag & Drop)
+  // 绑定拖拽排序（Pointer 事件实现，兼容 Tauri WebView2/WKWebView）
   listEl.querySelectorAll('.provider-models').forEach(container => {
     let dragged = null
-    container.addEventListener('dragstart', e => {
-      dragged = e.target.closest('.model-card')
-      if (dragged) {
-        dragged.style.opacity = '0.5'
-        e.dataTransfer.effectAllowed = 'move'
-      }
-    })
-    container.addEventListener('dragend', e => {
-      if (dragged) {
-        dragged.style.opacity = '1'
-        dragged = null
-      }
-    })
-    container.addEventListener('dragover', e => {
+    let placeholder = null
+    let startY = 0
+
+    // 仅从拖拽手柄启动
+    container.addEventListener('pointerdown', e => {
+      const handle = e.target.closest('.drag-handle')
+      if (!handle) return
+      const card = handle.closest('.model-card')
+      if (!card) return
+
       e.preventDefault()
-      const targetCard = e.target.closest('.model-card')
-      if (dragged && targetCard && dragged !== targetCard) {
-        const bounding = targetCard.getBoundingClientRect()
-        const offset = bounding.y + bounding.height / 2
-        if (e.clientY > offset) {
-          targetCard.after(dragged)
-        } else {
-          targetCard.before(dragged)
+      dragged = card
+      startY = e.clientY
+
+      // 创建占位符
+      placeholder = document.createElement('div')
+      placeholder.style.cssText = `height:${card.offsetHeight}px;border:2px dashed var(--border);border-radius:var(--radius-md);margin-bottom:8px;background:var(--bg-secondary)`
+      card.after(placeholder)
+
+      // 浮动拖拽元素
+      const rect = card.getBoundingClientRect()
+      card.style.position = 'fixed'
+      card.style.left = rect.left + 'px'
+      card.style.top = rect.top + 'px'
+      card.style.width = rect.width + 'px'
+      card.style.zIndex = '9999'
+      card.style.opacity = '0.85'
+      card.style.boxShadow = '0 8px 24px rgba(0,0,0,0.2)'
+      card.style.pointerEvents = 'none'
+      card.setPointerCapture(e.pointerId)
+    })
+
+    container.addEventListener('pointermove', e => {
+      if (!dragged || !placeholder) return
+      e.preventDefault()
+
+      // 移动浮动元素
+      const dy = e.clientY - startY
+      const origTop = parseFloat(dragged.style.top)
+      dragged.style.top = (origTop + dy) + 'px'
+      startY = e.clientY
+
+      // 查找目标位置
+      const siblings = [...container.querySelectorAll('.model-card:not([style*="position: fixed"])')].filter(c => c !== dragged)
+      for (const sibling of siblings) {
+        const rect = sibling.getBoundingClientRect()
+        const midY = rect.top + rect.height / 2
+        if (e.clientY < midY) {
+          sibling.before(placeholder)
+          return
         }
       }
+      // 放到最后
+      if (siblings.length) siblings[siblings.length - 1].after(placeholder)
     })
-    container.addEventListener('drop', e => {
-      e.preventDefault()
-      if (!dragged) return
 
+    container.addEventListener('pointerup', e => {
+      if (!dragged || !placeholder) return
+
+      // 恢复样式
+      dragged.style.position = ''
+      dragged.style.left = ''
+      dragged.style.top = ''
+      dragged.style.width = ''
+      dragged.style.zIndex = ''
+      dragged.style.opacity = ''
+      dragged.style.boxShadow = ''
+      dragged.style.pointerEvents = ''
+
+      // 把卡片放到占位符位置
+      placeholder.before(dragged)
+      placeholder.remove()
+
+      // 保存新顺序
       const section = container.closest('[data-provider]')
-      if (!section) return
-      const providerKey = section.dataset.provider
-      const provider = state.config.models.providers[providerKey]
-      if (!provider) return
+      if (section) {
+        const providerKey = section.dataset.provider
+        const provider = state.config.models.providers[providerKey]
+        if (provider) {
+          const newOrderIds = [...container.querySelectorAll('.model-card')].map(c => c.dataset.modelId)
+          pushUndo(state)
+          const oldModels = [...provider.models]
+          provider.models = newOrderIds.map(id => oldModels.find(m => (typeof m === 'string' ? m : m.id) === id))
+          autoSave(state)
+        }
+      }
 
-      // 获取新的顺序
-      const newOrderIds = [...container.querySelectorAll('.model-card')].map(c => c.dataset.modelId)
-
-      pushUndo(state)
-      const oldModels = [...provider.models]
-      provider.models = newOrderIds.map(id => oldModels.find(m => (typeof m === 'string' ? m : m.id) === id))
-
-      // 更新状态不重新渲染以保持列表稳定
-      autoSave(state)
+      dragged = null
+      placeholder = null
     })
   })
 
@@ -584,7 +645,28 @@ function setPrimary(state, full) {
 }
 
 // 应用默认模型：primary + 其余自动成为备选
+// 确保 primary 指向的模型仍然存在，不存在则自动切到第一个可用模型
+function ensureValidPrimary(state) {
+  const primary = getCurrentPrimary(state.config)
+  const allModels = collectAllModels(state.config)
+  if (allModels.length === 0) {
+    // 所有模型都没了，清空 primary
+    if (state.config.agents?.defaults?.model) {
+      state.config.agents.defaults.model.primary = ''
+    }
+    return
+  }
+  const exists = allModels.some(m => m.full === primary)
+  if (!exists) {
+    // primary 指向已删除的模型，自动切到第一个
+    const newPrimary = allModels[0].full
+    setPrimary(state, newPrimary)
+    toast(`主模型已自动切换为 ${newPrimary}`, 'info')
+  }
+}
+
 function applyDefaultModel(state) {
+  ensureValidPrimary(state)
   const primary = getCurrentPrimary(state.config)
   const allModels = collectAllModels(state.config)
   const fallbacks = allModels.filter(m => m.full !== primary).map(m => m.full)
@@ -597,6 +679,16 @@ function applyDefaultModel(state) {
   modelsMap[primary] = {}
   for (const fb of fallbacks) modelsMap[fb] = {}
   defaults.models = modelsMap
+
+  // 同步到各 agent 的模型覆盖配置，避免 agent 级别的旧值覆盖全局默认
+  const list = state.config.agents?.list
+  if (Array.isArray(list)) {
+    for (const agent of list) {
+      if (agent.model && typeof agent.model === 'object' && agent.model.primary) {
+        agent.model.primary = primary
+      }
+    }
+  }
 }
 
 // 顶部按钮事件
@@ -1141,7 +1233,7 @@ async function testModel(btn, state, providerKey, idx) {
       renderProviders(page, state)
       renderDefaultBar(page, state)
     }
-    // 持久化测试结果
-    autoSave(state)
+    // 持久化测试结果（仅保存，不重启 Gateway）
+    saveConfigOnly(state)
   }
 }

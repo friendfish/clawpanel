@@ -4,7 +4,7 @@
 import { registerRoute, initRouter, navigate, setDefaultRoute } from './router.js'
 import { renderSidebar } from './components/sidebar.js'
 import { initTheme } from './lib/theme.js'
-import { detectOpenclawStatus, isOpenclawReady, isGatewayRunning, onGatewayChange, startGatewayPoll } from './lib/app-state.js'
+import { detectOpenclawStatus, isOpenclawReady, isGatewayRunning, onGatewayChange, startGatewayPoll, onGuardianGiveUp, resetAutoRestart } from './lib/app-state.js'
 import { wsClient } from './lib/ws-client.js'
 import { api } from './lib/tauri-api.js'
 
@@ -67,6 +67,11 @@ async function boot() {
           wsClient.disconnect()
         }
       })
+
+      // 守护放弃时，弹出恢复选项
+      onGuardianGiveUp(() => {
+        showGuardianRecovery()
+      })
     }
   })
 }
@@ -83,8 +88,12 @@ async function autoConnectWebSocket() {
     try {
       const pairResult = await api.autoPairDevice()
       console.log('[main] 设备配对 + origins 已就绪:', pairResult)
-      // autoPairDevice 会写入 allowedOrigins，需要 reload 使 Gateway 生效
-      needReload = true
+      // 仅在配置实际变更时才需要 reload（dev-api 返回 {changed}，Tauri 返回字符串）
+      if (typeof pairResult === 'object' && pairResult.changed) {
+        needReload = true
+      } else if (typeof pairResult === 'string' && pairResult !== '设备已配对') {
+        needReload = true
+      }
     } catch (pairErr) {
       console.warn('[main] autoPairDevice 失败（非致命）:', pairErr)
     }
@@ -110,7 +119,8 @@ async function autoConnectWebSocket() {
       }
     }
 
-    wsClient.connect(`127.0.0.1:${port}`, token)
+    const host = window.__TAURI_INTERNALS__ ? `127.0.0.1:${port}` : location.host
+    wsClient.connect(host, token)
     console.log('[main] WebSocket 连接已启动')
   } catch (e) {
     console.error('[main] 自动连接 WebSocket 失败:', e)
@@ -136,19 +146,89 @@ function setupGatewayBanner() {
       banner.querySelector('#btn-gw-start')?.addEventListener('click', async (e) => {
         const btn = e.target
         btn.disabled = true
+        btn.classList.add('btn-loading')
         btn.textContent = '启动中...'
         try {
           await api.startService('ai.openclaw.gateway')
         } catch (err) {
-          btn.textContent = '启动失败，重试'
-          btn.disabled = false
+          const errMsg = err.message || String(err)
+          banner.innerHTML = `
+            <div class="gw-banner-content">
+              <span class="gw-banner-icon">⚠</span>
+              <span>启动失败: ${errMsg}</span>
+              <button class="btn btn-sm btn-primary" id="btn-gw-start">重试</button>
+              <a class="btn btn-sm btn-ghost" href="#/logs" style="color:inherit;text-decoration:underline">查看日志</a>
+            </div>
+          `
+          update(false)
+          return
         }
+        // 轮询等待实际启动
+        const t0 = Date.now()
+        while (Date.now() - t0 < 30000) {
+          try {
+            const s = await api.getServicesStatus()
+            const gw = s?.find?.(x => x.label === 'ai.openclaw.gateway') || s?.[0]
+            if (gw?.running) { update(true); return }
+          } catch {}
+          const sec = Math.floor((Date.now() - t0) / 1000)
+          btn.textContent = `启动中... ${sec}s`
+          await new Promise(r => setTimeout(r, 1500))
+        }
+        // 超时后尝试获取日志帮助排查
+        let logHint = ''
+        try {
+          const logs = await api.readLogTail('gateway', 5)
+          if (logs?.trim()) logHint = `<div style="font-size:12px;margin-top:4px;opacity:0.8;font-family:monospace;white-space:pre-wrap">${logs.trim().split('\n').slice(-3).join('\n')}</div>`
+        } catch {}
+        banner.innerHTML = `
+          <div class="gw-banner-content">
+            <span class="gw-banner-icon">⚠</span>
+            <span>启动超时，Gateway 可能仍在启动中</span>
+            <button class="btn btn-sm btn-primary" id="btn-gw-start">重试</button>
+            <a class="btn btn-sm btn-ghost" href="#/logs" style="color:inherit;text-decoration:underline">查看日志</a>
+          </div>
+          ${logHint}
+        `
+        update(false)
       })
     }
   }
 
   update(isGatewayRunning())
   onGatewayChange(update)
+}
+
+function showGuardianRecovery() {
+  const banner = document.getElementById('gw-banner')
+  if (!banner) return
+  banner.classList.remove('gw-banner-hidden')
+  banner.innerHTML = `
+    <div class="gw-banner-content" style="flex-wrap:wrap;gap:8px">
+      <span class="gw-banner-icon">🛠</span>
+      <span>Gateway 反复启动失败，可能配置有误</span>
+      <button class="btn btn-sm btn-primary" id="btn-gw-recover-restart">重试启动</button>
+      <button class="btn btn-sm btn-secondary" id="btn-gw-recover-backup">从备份恢复</button>
+      <a class="btn btn-sm btn-ghost" href="#/services" style="color:inherit;text-decoration:underline">服务管理</a>
+      <a class="btn btn-sm btn-ghost" href="#/logs" style="color:inherit;text-decoration:underline">查看日志</a>
+    </div>
+  `
+  banner.querySelector('#btn-gw-recover-restart')?.addEventListener('click', async (e) => {
+    const btn = e.target
+    btn.disabled = true
+    btn.textContent = '启动中...'
+    resetAutoRestart()
+    try {
+      await api.startService('ai.openclaw.gateway')
+      btn.textContent = '已发送启动命令'
+    } catch (err) {
+      btn.textContent = '启动失败'
+      btn.disabled = false
+    }
+  })
+  banner.querySelector('#btn-gw-recover-backup')?.addEventListener('click', () => {
+    navigate('/services')
+  })
 }
 
 boot()

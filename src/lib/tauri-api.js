@@ -5,6 +5,17 @@
 
 const isTauri = !!window.__TAURI_INTERNALS__
 
+// 写操作不应静默回退 mock（否则会“假成功”）
+const NO_MOCK_CMDS = new Set([
+  'start_service', 'stop_service', 'restart_service',
+  'upgrade_openclaw', 'install_gateway', 'uninstall_gateway',
+  'write_openclaw_config', 'write_mcp_config',
+  'create_backup', 'restore_backup', 'delete_backup',
+  'write_memory_file', 'delete_memory_file',
+  'set_npm_registry', 'reload_gateway', 'restart_gateway',
+  'auto_pair_device',
+])
+
 // 预加载 Tauri invoke，避免每次 API 调用都做动态 import
 const _invokeReady = isTauri
   ? import('@tauri-apps/api/core').then(m => m.invoke)
@@ -74,10 +85,38 @@ async function invoke(cmd, args = {}) {
     logRequest(cmd, args, duration, false)
     return result
   }
-  const result = mockInvoke(cmd, args)
-  const duration = Date.now() - start
-  logRequest(cmd, args, duration, false)
-  return result
+  // Web 模式：优先调用 Vite 开发 API（真实后端），失败时回退 mock
+  try {
+    const result = await webInvoke(cmd, args)
+    const duration = Date.now() - start
+    logRequest(cmd, args, duration, false)
+    return result
+  } catch (e) {
+    // 写操作不回退 mock，直接报错（避免“假成功”）
+    if (NO_MOCK_CMDS.has(cmd)) {
+      logRequest(cmd, args, Date.now() - start, false)
+      throw e
+    }
+    console.warn(`[api] webInvoke(${cmd}) failed:`, e.message, '→ fallback mock')
+    const result = mockInvoke(cmd, args)
+    const duration = Date.now() - start
+    logRequest(cmd, args, duration, false)
+    return result
+  }
+}
+
+// Web 模式：通过 Vite 开发服务器的 API 端点调用真实后端
+async function webInvoke(cmd, args) {
+  const resp = await fetch(`/__api/${cmd}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(args),
+  })
+  if (!resp.ok) {
+    const data = await resp.json().catch(() => ({ error: `HTTP ${resp.status}` }))
+    throw new Error(data.error || `HTTP ${resp.status}`)
+  }
+  return resp.json()
 }
 
 // Mock 数据，方便纯浏览器开发调试

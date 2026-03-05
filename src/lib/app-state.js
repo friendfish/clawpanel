@@ -6,17 +6,52 @@ import { api } from './tauri-api.js'
 
 let _openclawReady = false
 let _gatewayRunning = false
+let _platform = ''  // 'macos' | 'win32' | ...
 let _listeners = []
 let _gwListeners = []
+let _gwStopCount = 0  // 连续检测到"停止"的次数，防抖用
+let _isUpgrading = false // 升级/切换版本期间，阻止 setup 跳转
+let _userStopped = false // 用户主动停止，不自动拉起
+let _autoRestartCount = 0 // 自动重启次数
+let _lastRestartTime = 0  // 上次重启时间
+const MAX_AUTO_RESTART = 3 // 最大连续自动重启次数
+const RESTART_COOLDOWN = 60000 // 重启冷却期 60s
+let _guardianListeners = [] // 守护放弃时的回调
 
 /** openclaw 是否就绪（CLI 已安装 + 配置文件存在） */
 export function isOpenclawReady() {
+  // 升级期间视为就绪，避免跳转到 setup
+  if (_isUpgrading) return true
   return _openclawReady
+}
+
+/** 标记升级中（阻止 setup 跳转） */
+export function setUpgrading(v) { _isUpgrading = !!v }
+export function isUpgrading() { return _isUpgrading }
+
+/** 标记用户主动停止 Gateway（不触发自动重启） */
+export function setUserStopped(v) { _userStopped = !!v }
+
+/** 重置自动重启计数（用户手动启动后重置） */
+export function resetAutoRestart() { _autoRestartCount = 0; _userStopped = false }
+
+/** 监听守护放弃事件（连续重启失败后触发，UI 可弹出恢复选项） */
+export function onGuardianGiveUp(fn) {
+  _guardianListeners.push(fn)
+  return () => { _guardianListeners = _guardianListeners.filter(cb => cb !== fn) }
 }
 
 /** Gateway 是否正在运行 */
 export function isGatewayRunning() {
   return _gatewayRunning
+}
+
+/** 获取后端平台 ('macos' | 'win32') */
+export function getPlatform() {
+  return _platform
+}
+export function isMacPlatform() {
+  return _platform === 'macos'
 }
 
 /** 监听 Gateway 状态变化 */
@@ -33,6 +68,9 @@ export async function detectOpenclawStatus() {
       api.getServicesStatus(),
     ])
     const configExists = installation.status === 'fulfilled' && installation.value?.installed
+    if (installation.status === 'fulfilled' && installation.value?.platform) {
+      _platform = installation.value.platform
+    }
     const cliInstalled = services.status === 'fulfilled'
       && services.value?.length > 0
       && services.value[0]?.cli_installed !== false
@@ -50,17 +88,62 @@ export async function detectOpenclawStatus() {
 }
 
 function _setGatewayRunning(val) {
-  const changed = _gatewayRunning !== val
+  const wasRunning = _gatewayRunning
+  const changed = wasRunning !== val
   _gatewayRunning = val
-  if (changed) _gwListeners.forEach(fn => { try { fn(val) } catch {} })
+  if (changed) {
+    if (val) {
+      // Gateway 恢复运行，重置计数
+      _autoRestartCount = 0
+    } else if (wasRunning && !_userStopped && !_isUpgrading && _openclawReady) {
+      // Gateway 意外停止，尝试自动重启
+      _tryAutoRestart()
+    }
+    _gwListeners.forEach(fn => { try { fn(val) } catch {} })
+  }
 }
 
-/** 刷新 Gateway 运行状态（轻量，仅查服务状态） */
+async function _tryAutoRestart() {
+  const now = Date.now()
+  // 冷却期内不重复重启
+  if (now - _lastRestartTime < RESTART_COOLDOWN) return
+  if (_autoRestartCount >= MAX_AUTO_RESTART) {
+    console.warn(`[guardian] Gateway 已连续自动重启 ${MAX_AUTO_RESTART} 次，停止守护，请手动检查`)
+    _guardianListeners.forEach(fn => { try { fn() } catch {} })
+    return
+  }
+  _autoRestartCount++
+  _lastRestartTime = now
+  console.log(`[guardian] Gateway 意外停止，自动重启 (${_autoRestartCount}/${MAX_AUTO_RESTART})...`)
+  try {
+    await api.startService('ai.openclaw.gateway')
+    console.log('[guardian] Gateway 自动重启成功')
+  } catch (e) {
+    console.error('[guardian] Gateway 自动重启失败:', e)
+  }
+}
+
+/** 刷新 Gateway 运行状态（轻量，仅查服务状态）
+ *  防抖：running→stopped 需要连续 2 次检测才切换，避免瞬态误判 */
 export async function refreshGatewayStatus() {
   try {
     const services = await api.getServicesStatus()
-    if (services?.length > 0) _setGatewayRunning(services[0]?.running === true)
-  } catch {}
+    if (services?.length > 0) {
+      const nowRunning = services[0]?.running === true
+      if (nowRunning) {
+        _gwStopCount = 0
+        _setGatewayRunning(true)
+      } else {
+        _gwStopCount++
+        if (_gwStopCount >= 2 || !_gatewayRunning) {
+          _setGatewayRunning(false)
+        }
+      }
+    }
+  } catch {
+    _gwStopCount++
+    if (_gwStopCount >= 2) _setGatewayRunning(false)
+  }
   return _gatewayRunning
 }
 

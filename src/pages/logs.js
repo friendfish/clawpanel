@@ -75,6 +75,10 @@ export function cleanup() {
 
 async function loadLog(page, logName) {
   const el = page.querySelector('#log-content')
+  const refreshBtn = page.querySelector('#btn-refresh')
+  // 显示加载状态
+  el.innerHTML = '<div class="log-loading"><div class="service-spinner"></div><span style="color:var(--text-tertiary);margin-left:8px">加载日志中...</span></div>'
+  if (refreshBtn) { refreshBtn.classList.add('btn-loading'); refreshBtn.disabled = true }
   try {
     const content = await api.readLogTail(logName, 200)
     if (!content || !content.trim()) {
@@ -89,6 +93,8 @@ async function loadLog(page, logName) {
   } catch (e) {
     el.innerHTML = '<div style="color:var(--error);padding:12px">加载日志失败: ' + e + '</div>'
     toast('加载日志失败: ' + e, 'error')
+  } finally {
+    if (refreshBtn) { refreshBtn.classList.remove('btn-loading'); refreshBtn.disabled = false }
   }
 }
 

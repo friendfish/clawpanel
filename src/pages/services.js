@@ -5,6 +5,7 @@
 import { api } from '../lib/tauri-api.js'
 import { toast } from '../components/toast.js'
 import { showConfirm, showUpgradeModal } from '../components/modal.js'
+import { isMacPlatform, setUpgrading, setUserStopped, resetAutoRestart } from '../lib/app-state.js'
 
 // HTML 转义，防止 XSS
 function escapeHtml(str) {
@@ -168,10 +169,9 @@ function renderServices(container, services) {
           : gw.running
             ? `<button class="btn btn-secondary btn-sm" data-action="restart" data-label="${gw.label}">重启</button>
                <button class="btn btn-danger btn-sm" data-action="stop" data-label="${gw.label}">停止</button>
-               <button class="btn btn-danger btn-sm" data-action="uninstall-gateway">卸载</button>`
+               ${isMacPlatform() ? '<button class="btn btn-danger btn-sm" data-action="uninstall-gateway">卸载</button>' : ''}`
             : `<button class="btn btn-primary btn-sm" data-action="start" data-label="${gw.label}">启动</button>
-               <button class="btn btn-primary btn-sm" data-action="install-gateway">安装</button>
-               <button class="btn btn-danger btn-sm" data-action="uninstall-gateway">卸载</button>`
+               ${isMacPlatform() ? '<button class="btn btn-primary btn-sm" data-action="install-gateway">安装</button><button class="btn btn-danger btn-sm" data-action="uninstall-gateway">卸载</button>' : ''}`
         }
       </div>
     </div>`
@@ -285,12 +285,94 @@ function bindEvents(page) {
 // ===== 服务操作 =====
 
 const ACTION_LABELS = { start: '启动', stop: '停止', restart: '重启' }
+const POLL_INTERVAL = 1500  // 轮询间隔 ms
+const POLL_TIMEOUT = 30000  // 最长等待 30s
 
 async function handleServiceAction(action, label, page) {
   const fn = { start: api.startService, stop: api.stopService, restart: api.restartService }[action]
-  toast(`正在${ACTION_LABELS[action]} ${label}...`, 'info')
-  await fn(label)
-  toast(`${ACTION_LABELS[action]} ${label} 成功`, 'success')
+  const actionLabel = ACTION_LABELS[action]
+  const expectRunning = action !== 'stop'
+
+  // 通知守护模块：用户主动操作
+  if (action === 'stop') setUserStopped(true)
+  if (action === 'start') resetAutoRestart()
+
+  // 找到触发按钮所在的 service-card，替换按钮区域为加载状态
+  const card = page.querySelector(`.service-card[data-label="${label}"]`)
+  const actionsEl = card?.querySelector('.service-actions')
+  const origHtml = actionsEl?.innerHTML || ''
+
+  let cancelled = false
+  if (actionsEl) {
+    actionsEl.innerHTML = `
+      <div class="service-loading">
+        <div class="service-spinner"></div>
+        <span class="service-loading-text">正在${actionLabel}...</span>
+        <button class="btn btn-sm btn-ghost service-cancel-btn" style="display:none">取消等待</button>
+      </div>`
+    const cancelBtn = actionsEl.querySelector('.service-cancel-btn')
+    if (cancelBtn) {
+      cancelBtn.addEventListener('click', () => { cancelled = true })
+    }
+  }
+
+  // 更新状态点为加载中
+  const dot = card?.querySelector('.status-dot')
+  if (dot) { dot.className = 'status-dot loading' }
+
+  try {
+    await fn(label)
+  } catch (e) {
+    toast(`${actionLabel}命令失败: ${e.message || e}`, 'error')
+    if (actionsEl) actionsEl.innerHTML = origHtml
+    if (dot) dot.className = 'status-dot stopped'
+    return
+  }
+
+  // 轮询等待实际状态变化
+  const startTime = Date.now()
+  let showedCancel = false
+  const loadingText = actionsEl?.querySelector('.service-loading-text')
+  const cancelBtn = actionsEl?.querySelector('.service-cancel-btn')
+
+  while (!cancelled) {
+    const elapsed = Date.now() - startTime
+
+    // 5 秒后显示取消按钮
+    if (!showedCancel && elapsed > 5000 && cancelBtn) {
+      cancelBtn.style.display = ''
+      showedCancel = true
+    }
+
+    // 更新等待时间
+    if (loadingText) {
+      const sec = Math.floor(elapsed / 1000)
+      loadingText.textContent = `正在${actionLabel}... ${sec}s`
+    }
+
+    // 超时
+    if (elapsed > POLL_TIMEOUT) {
+      toast(`${actionLabel}超时，Gateway 可能仍在启动中`, 'warning')
+      break
+    }
+
+    // 检查实际状态
+    try {
+      const services = await api.getServicesStatus()
+      const svc = services?.find?.(s => s.label === label) || services?.[0]
+      if (svc && svc.running === expectRunning) {
+        toast(`${label} 已${actionLabel}${svc.pid ? ' (PID: ' + svc.pid + ')' : ''}`, 'success')
+        await loadServices(page)
+        return
+      }
+    } catch {}
+
+    await new Promise(r => setTimeout(r, POLL_INTERVAL))
+  }
+
+  if (cancelled) {
+    toast('已取消等待，可稍后刷新查看状态', 'info')
+  }
   await loadServices(page)
 }
 
@@ -323,17 +405,26 @@ async function handleDeleteBackup(name, page) {
 async function doUpgradeWithModal(source, page) {
   const modal = showUpgradeModal()
   let unlistenLog, unlistenProgress
+  setUpgrading(true)
   try {
-    const { listen } = await import('@tauri-apps/api/event')
-    unlistenLog = await listen('upgrade-log', (e) => modal.appendLog(e.payload))
-    unlistenProgress = await listen('upgrade-progress', (e) => modal.setProgress(e.payload))
+    // Tauri 环境下监听实时日志；Web 模式跳过
+    if (window.__TAURI_INTERNALS__) {
+      try {
+        const { listen } = await import('@tauri-apps/api/event')
+        unlistenLog = await listen('upgrade-log', (e) => modal.appendLog(e.payload))
+        unlistenProgress = await listen('upgrade-progress', (e) => modal.setProgress(e.payload))
+      } catch { /* Web 模式无 Tauri event */ }
+    } else {
+      modal.appendLog('Web 模式：升级过程日志不可用，请等待完成...')
+    }
     const msg = await api.upgradeOpenclaw(source)
-    modal.setDone(msg)
+    modal.setDone(typeof msg === 'string' ? msg : (msg?.message || '升级完成'))
     await loadVersion(page)
   } catch (e) {
     modal.appendLog(String(e))
     modal.setError('升级失败')
   } finally {
+    setUpgrading(false)
     unlistenLog?.()
     unlistenProgress?.()
   }
@@ -356,19 +447,33 @@ async function handleSwitchSource(target, page) {
 // ===== Gateway 安装/卸载 =====
 
 async function handleInstallGateway(btn, page) {
+  btn.classList.add('btn-loading')
   btn.textContent = '安装中...'
-  await api.installGateway()
-  toast('Gateway 服务已安装', 'success')
-  await loadServices(page)
+  try {
+    await api.installGateway()
+    toast('Gateway 服务已安装', 'success')
+    await loadServices(page)
+  } catch (e) {
+    toast('安装失败: ' + e, 'error')
+    btn.classList.remove('btn-loading')
+    btn.textContent = '安装'
+  }
 }
 
 async function handleUninstallGateway(btn, page) {
   const yes = await showConfirm('确定要卸载 Gateway 服务吗？\n这会停止服务并移除 LaunchAgent。')
   if (!yes) return
+  btn.classList.add('btn-loading')
   btn.textContent = '卸载中...'
-  await api.uninstallGateway()
-  toast('Gateway 服务已卸载', 'success')
-  await loadServices(page)
+  try {
+    await api.uninstallGateway()
+    toast('Gateway 服务已卸载', 'success')
+    await loadServices(page)
+  } catch (e) {
+    toast('卸载失败: ' + e, 'error')
+    btn.classList.remove('btn-loading')
+    btn.textContent = '卸载'
+  }
 }
 
 async function handleSaveRegistry(btn, page) {
