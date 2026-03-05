@@ -1,8 +1,8 @@
+use base64::{engine::general_purpose, Engine as _};
 /// AI 助手工具命令
 /// 提供终端执行、文件读写、目录列表等能力
 /// 仅在用户主动开启工具后由 AI 调用
 use std::path::PathBuf;
-use base64::{Engine as _, engine::general_purpose};
 
 /// ClawPanel 数据目录（~/.openclaw/clawpanel/）
 fn data_dir() -> PathBuf {
@@ -83,7 +83,10 @@ pub async fn assistant_load_image(id: String) -> Result<String, String> {
         .await
         .map_err(|e| format!("读取图片失败: {e}"))?;
 
-    let ext = filepath.extension().and_then(|e| e.to_str()).unwrap_or("jpg");
+    let ext = filepath
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("jpg");
     let mime = match ext {
         "png" => "image/png",
         "gif" => "image/gif",
@@ -234,7 +237,12 @@ pub async fn assistant_system_info() -> Result<String, String> {
 
     Ok(format!(
         "OS: {}\nArch: {}\nHome: {}\nHostname: {}\nShell: {}\nPath separator: {}",
-        os, arch, home, hostname, shell, std::path::MAIN_SEPARATOR
+        os,
+        arch,
+        home,
+        hostname,
+        shell,
+        std::path::MAIN_SEPARATOR
     ))
 }
 
@@ -259,10 +267,14 @@ pub async fn assistant_list_processes(filter: Option<String>) -> Result<String, 
 
     if let Some(f) = filter {
         let f_lower = f.to_lowercase();
-        let lines: Vec<&str> = stdout.lines()
+        let lines: Vec<&str> = stdout
+            .lines()
             .filter(|line| {
                 let lower = line.to_lowercase();
-                lower.contains(&f_lower) || lower.starts_with("id") || lower.starts_with("user") || lower.contains("---")
+                lower.contains(&f_lower)
+                    || lower.starts_with("id")
+                    || lower.starts_with("user")
+                    || lower.contains("---")
             })
             .collect();
         if lines.len() <= 2 {
@@ -291,7 +303,10 @@ pub async fn assistant_check_port(port: u16) -> Result<String, String> {
         Ok(_stream) => {
             // 尝试获取占用进程信息
             let process_info = get_port_process(port).await;
-            Ok(format!("端口 {} 已被占用（正在监听）{}", port, process_info))
+            Ok(format!(
+                "端口 {} 已被占用（正在监听）{}",
+                port, process_info
+            ))
         }
         Err(_) => Ok(format!("端口 {} 未被占用（空闲）", port)),
     }
@@ -314,7 +329,11 @@ async fn get_port_process(port: u16) -> String {
     match output {
         Ok(o) => {
             let s = String::from_utf8_lossy(&o.stdout).trim().to_string();
-            if s.is_empty() { String::new() } else { format!("\n占用进程: {}", s) }
+            if s.is_empty() {
+                String::new()
+            } else {
+                format!("\n占用进程: {}", s)
+            }
         }
         Err(_) => String::new(),
     }
@@ -328,11 +347,7 @@ pub async fn assistant_list_dir(path: String) -> Result<String, String> {
         .map_err(|e| format!("读取目录失败 {path}: {e}"))?;
 
     let mut items = Vec::new();
-    while let Some(entry) = entries
-        .next_entry()
-        .await
-        .map_err(|e| format!("{e}"))?
-    {
+    while let Some(entry) = entries.next_entry().await.map_err(|e| format!("{e}"))? {
         let meta = entry.metadata().await.ok();
         let name = entry.file_name().to_string_lossy().to_string();
         let is_dir = meta.as_ref().map(|m| m.is_dir()).unwrap_or(false);
