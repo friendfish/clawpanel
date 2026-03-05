@@ -75,6 +75,16 @@ ClawPanel 是 [OpenClaw](https://github.com/1186258278/OpenClawChineseTranslatio
 | DEB | `ClawPanel_x.x.x_amd64.deb` | Debian / Ubuntu：`sudo dpkg -i *.deb` |
 | RPM | `ClawPanel-x.x.x-1.x86_64.rpm` | Fedora / RHEL：`sudo rpm -i *.rpm` |
 
+### Linux 服务器（无 GUI）
+
+不需要桌面环境，一键命令部署 OpenClaw Gateway，通过端口远程访问：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/qingchencloud/clawpanel/main/scripts/linux-deploy.sh | bash
+```
+
+📖 详细教程见 [Linux 服务器部署指南](docs/linux-deploy.md)
+
 ## 功能特性
 
 <p align="center">
