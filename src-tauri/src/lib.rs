@@ -4,7 +4,8 @@ mod tray;
 mod utils;
 
 use commands::{
-    agent, assistant, config, device, extensions, logs, memory, pairing, service, skills, update,
+    agent, assistant, config, device, extensions, logs, memory, messaging, pairing, service, skills,
+    update,
 };
 
 pub fn run() {
@@ -141,6 +142,14 @@ pub fn run() {
             assistant::assistant_save_image,
             assistant::assistant_load_image,
             assistant::assistant_delete_image,
+            // 消息渠道管理
+            messaging::read_platform_config,
+            messaging::save_messaging_platform,
+            messaging::remove_messaging_platform,
+            messaging::toggle_messaging_platform,
+            messaging::verify_bot_token,
+            messaging::list_configured_platforms,
+            messaging::install_qqbot_plugin,
             // Skills 管理（openclaw skills CLI）
             skills::skills_list,
             skills::skills_info,

@@ -138,6 +138,50 @@ export function showModal({ title, fields, onConfirm }) {
 }
 
 /**
+ * 通用内容弹窗 — 支持自定义 HTML 和按钮
+ * @param {{ title, content, buttons, width }} opts
+ *   buttons: [{ label, className, id }]
+ * @returns {HTMLElement} overlay 元素（带 .close() 方法）
+ */
+export function showContentModal({ title, content, buttons = [], width = 480 }) {
+  const overlay = document.createElement('div')
+  overlay.className = 'modal-overlay'
+
+  const btnsHtml = buttons.map(b =>
+    `<button class="${b.className || 'btn btn-primary btn-sm'}" id="${b.id || ''}">${b.label}</button>`
+  ).join('')
+
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:${width}px">
+      <div class="modal-title">${title}</div>
+      <div class="modal-content-body">${content}</div>
+      <div class="modal-actions">
+        <button class="btn btn-secondary btn-sm" data-action="cancel">取消</button>
+        ${btnsHtml}
+      </div>
+    </div>
+  `
+
+  document.body.appendChild(overlay)
+
+  overlay.close = () => overlay.remove()
+
+  overlay.addEventListener('click', (e) => {
+    if (e.target === overlay) overlay.remove()
+  })
+  overlay.querySelector('[data-action="cancel"]').onclick = () => overlay.remove()
+  overlay.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') overlay.remove()
+  })
+
+  // 自动聚焦第一个输入框或按钮
+  const firstInput = overlay.querySelector('input, textarea, select')
+  if (firstInput) firstInput.focus()
+
+  return overlay
+}
+
+/**
  * 升级进度弹窗 — 带进度条和实时日志
  * @returns {{ appendLog, setProgress, setDone, setError, destroy }}
  */

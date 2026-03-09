@@ -121,6 +121,22 @@ pub fn read_openclaw_config() -> Result<Value, String> {
     Ok(config)
 }
 
+/// 供其他模块复用：读取 openclaw.json 为 JSON Value
+pub fn load_openclaw_json() -> Result<Value, String> {
+    read_openclaw_config()
+}
+
+/// 供其他模块复用：将 JSON Value 写回 openclaw.json（含备份和清理）
+pub fn save_openclaw_json(config: &Value) -> Result<(), String> {
+    write_openclaw_config(config.clone())
+}
+
+/// 供其他模块复用：触发 Gateway 重载
+pub async fn do_reload_gateway(app: &tauri::AppHandle) -> Result<String, String> {
+    let _ = app; // 预留扩展用
+    reload_gateway().await
+}
+
 #[tauri::command]
 pub fn write_openclaw_config(config: Value) -> Result<(), String> {
     let path = super::openclaw_dir().join("openclaw.json");

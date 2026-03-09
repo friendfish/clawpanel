@@ -25,6 +25,7 @@ const NAV_ITEMS_FULL = [
       { route: '/models', label: '模型配置', icon: 'models' },
       { route: '/agents', label: 'Agent 管理', icon: 'agents' },
       { route: '/gateway', label: 'Gateway', icon: 'gateway' },
+      { route: '/channels', label: '消息渠道', icon: 'channels' },
       { route: '/security', label: '安全设置', icon: 'security' },
     ]
   },
@@ -88,6 +89,7 @@ const ICONS = {
   security: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0110 0v4"/></svg>',
   skills: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>',
   docker: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="11" width="4" height="3" rx=".5"/><rect x="6" y="11" width="4" height="3" rx=".5"/><rect x="11" y="11" width="4" height="3" rx=".5"/><rect x="6" y="7" width="4" height="3" rx=".5"/><rect x="11" y="7" width="4" height="3" rx=".5"/><rect x="16" y="11" width="4" height="3" rx=".5"/><rect x="11" y="3" width="4" height="3" rx=".5"/><path d="M2 17c1 3 4 5 10 5s9-2 10-5"/></svg>',
+  channels: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>',
   debug: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/><circle cx="12" cy="12" r="3"/></svg>',
 }
 

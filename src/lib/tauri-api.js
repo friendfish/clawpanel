@@ -192,6 +192,15 @@ export const api = {
   deleteMemoryFile: (path, agentId) => { invalidate('list_memory_files'); return invoke('delete_memory_file', { path, agentId: agentId || null }) },
   exportMemoryZip: (category, agentId) => invoke('export_memory_zip', { category, agentId: agentId || null }),
 
+  // 消息渠道管理
+  readPlatformConfig: (platform) => invoke('read_platform_config', { platform }),
+  saveMessagingPlatform: (platform, form) => { invalidate('list_configured_platforms', 'read_platform_config'); return invoke('save_messaging_platform', { platform, form }) },
+  removeMessagingPlatform: (platform) => { invalidate('list_configured_platforms', 'read_platform_config'); return invoke('remove_messaging_platform', { platform }) },
+  toggleMessagingPlatform: (platform, enabled) => { invalidate('list_configured_platforms'); return invoke('toggle_messaging_platform', { platform, enabled }) },
+  verifyBotToken: (platform, form) => invoke('verify_bot_token', { platform, form }),
+  listConfiguredPlatforms: () => cachedInvoke('list_configured_platforms', {}, 5000),
+  installQqbotPlugin: () => invoke('install_qqbot_plugin'),
+
   // 面板配置 (clawpanel.json)
   readPanelConfig: () => invoke('read_panel_config'),
   writePanelConfig: (config) => invoke('write_panel_config', { config }),

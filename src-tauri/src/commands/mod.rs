@@ -8,6 +8,7 @@ pub mod device;
 pub mod extensions;
 pub mod logs;
 pub mod memory;
+pub mod messaging;
 pub mod pairing;
 pub mod service;
 pub mod skills;

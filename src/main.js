@@ -303,6 +303,7 @@ async function boot() {
   registerRoute('/assistant', () => import('./pages/assistant.js'))
   registerRoute('/setup', () => import('./pages/setup.js'))
   registerRoute('/docker', () => import('./pages/docker.js'))
+  registerRoute('/channels', () => import('./pages/channels.js'))
 
   renderSidebar(sidebar)
   initRouter(content)
