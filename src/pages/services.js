@@ -34,6 +34,17 @@ export async function render() {
       <div class="config-section-title">npm 源设置</div>
       <div id="registry-bar"></div>
     </div>
+    <div class="config-section" id="config-editor-section" style="display:none">
+      <div class="config-section-title">配置文件编辑</div>
+      <div class="form-hint" style="margin-bottom:var(--space-sm)">直接编辑 <code>openclaw.json</code> 主配置文件。保存前会自动创建备份，修改后可能需要重启 Gateway 生效。</div>
+      <div style="display:flex;gap:8px;margin-bottom:var(--space-sm)">
+        <button class="btn btn-primary btn-sm" data-action="save-config" disabled>保存并重启</button>
+        <button class="btn btn-secondary btn-sm" data-action="save-config-only" disabled>仅保存</button>
+        <button class="btn btn-secondary btn-sm" data-action="reload-config">重新加载</button>
+      </div>
+      <div id="config-editor-status" style="font-size:var(--font-size-xs);margin-bottom:6px;min-height:18px"></div>
+      <textarea id="config-editor-area" class="form-input" style="font-family:var(--font-mono);font-size:12px;min-height:320px;resize:vertical;tab-size:2;white-space:pre;overflow-x:auto" spellcheck="false" disabled></textarea>
+    </div>
     <div class="config-section" id="backup-section">
       <div class="config-section-title">配置备份</div>
       <div class="form-hint" style="margin-bottom:var(--space-sm)">备份范围：openclaw.json 主配置文件（含模型、Provider、Gateway 设置）。Agent 数据和记忆文件不在此备份范围内。</div>
@@ -56,7 +67,7 @@ export async function render() {
 }
 
 async function loadAll(page) {
-  const tasks = [loadVersion(page), loadServices(page), loadBackups(page)]
+  const tasks = [loadVersion(page), loadServices(page), loadBackups(page), loadConfigEditor(page)]
   if (!isInDocker()) tasks.push(loadRegistry(page))
   await Promise.all(tasks)
 }
@@ -269,6 +280,15 @@ function bindEvents(page) {
         case 'restart':
           await handleServiceAction(action, btn.dataset.label, page)
           break
+        case 'save-config':
+          await handleSaveConfig(page, true)
+          break
+        case 'save-config-only':
+          await handleSaveConfig(page, false)
+          break
+        case 'reload-config':
+          await loadConfigEditor(page)
+          break
         case 'create-backup':
           await handleCreateBackup(page)
           break
@@ -421,6 +441,100 @@ async function handleDeleteBackup(name, page) {
   await api.deleteBackup(name)
   toast('备份已删除', 'success')
   await loadBackups(page)
+}
+
+// ===== 配置文件编辑器 =====
+
+let _configOriginal = ''
+
+async function loadConfigEditor(page) {
+  const section = page.querySelector('#config-editor-section')
+  const area = page.querySelector('#config-editor-area')
+  const status = page.querySelector('#config-editor-status')
+  const btnSave = page.querySelector('[data-action="save-config"]')
+  const btnSaveOnly = page.querySelector('[data-action="save-config-only"]')
+
+  try {
+    const config = await api.readOpenclawConfig()
+    const json = JSON.stringify(config, null, 2)
+    _configOriginal = json
+    area.value = json
+    area.disabled = false
+    btnSave.disabled = false
+    btnSaveOnly.disabled = false
+    section.style.display = ''
+    status.innerHTML = `<span style="color:var(--text-tertiary)">已加载 · ${(json.length / 1024).toFixed(1)} KB</span>`
+
+    // 实时检测 JSON 语法
+    area.oninput = () => {
+      try {
+        JSON.parse(area.value)
+        const changed = area.value !== _configOriginal
+        status.innerHTML = changed
+          ? '<span style="color:var(--warning)">● 有未保存的修改</span>'
+          : '<span style="color:var(--text-tertiary)">无修改</span>'
+        btnSave.disabled = !changed
+        btnSaveOnly.disabled = !changed
+      } catch (e) {
+        status.innerHTML = `<span style="color:var(--error)">JSON 语法错误: ${e.message.split(' at ')[0]}</span>`
+        btnSave.disabled = true
+        btnSaveOnly.disabled = true
+      }
+    }
+  } catch {
+    // openclaw.json 不存在，隐藏编辑器
+    section.style.display = 'none'
+  }
+}
+
+async function handleSaveConfig(page, restart) {
+  const area = page.querySelector('#config-editor-area')
+  const status = page.querySelector('#config-editor-status')
+
+  let config
+  try {
+    config = JSON.parse(area.value)
+  } catch (e) {
+    toast('JSON 格式错误，无法保存', 'error')
+    return
+  }
+
+  status.innerHTML = '<span style="color:var(--text-tertiary)">自动备份中...</span>'
+
+  try {
+    // 保存前自动备份
+    await api.createBackup()
+  } catch (e) {
+    const yes = await showConfirm('自动备份失败: ' + e + '\n\n是否仍然继续保存？')
+    if (!yes) return
+  }
+
+  status.innerHTML = '<span style="color:var(--text-tertiary)">保存中...</span>'
+
+  try {
+    await api.writeOpenclawConfig(config)
+    _configOriginal = area.value
+    toast('配置已保存' + (restart ? '，正在重启 Gateway...' : ''), 'success')
+    status.innerHTML = '<span style="color:var(--success)">已保存</span>'
+
+    page.querySelector('[data-action="save-config"]').disabled = true
+    page.querySelector('[data-action="save-config-only"]').disabled = true
+
+    if (restart) {
+      try {
+        await api.restartGateway()
+        toast('Gateway 已重启', 'success')
+      } catch (e) {
+        toast('配置已保存，但 Gateway 重启失败: ' + e, 'warning')
+      }
+      await loadServices(page)
+    }
+
+    await loadBackups(page)
+  } catch (e) {
+    toast('保存失败: ' + e, 'error')
+    status.innerHTML = `<span style="color:var(--error)">保存失败: ${e}</span>`
+  }
 }
 
 // ===== 升级操作 =====
