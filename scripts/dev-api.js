@@ -992,6 +992,15 @@ const ALWAYS_LOCAL = new Set([
   'assistant_ensure_data_dir', 'assistant_save_image', 'assistant_load_image', 'assistant_delete_image',
 ])
 
+// === 工具函数 ===
+
+// 清理 base URL：去掉尾部斜杠和已知端点路径，防止路径重复
+function _normalizeBaseUrl(raw) {
+  let base = (raw || '').replace(/\/+$/, '')
+  base = base.replace(/\/(chat\/completions|completions|responses|messages|models)\/?$/, '')
+  return base.replace(/\/+$/, '')
+}
+
 // === API Handlers ===
 
 const handlers = {
@@ -2291,16 +2300,9 @@ const handlers = {
     return { current, latest: null, update_available: false, source: 'chinese' }
   },
 
-  // 清理 base URL：去掉尾部斜杠和已知端点路径，防止路径重复
-  _normalizeBaseUrl(raw) {
-    let base = raw.replace(/\/+$/, '')
-    base = base.replace(/\/(chat\/completions|completions|responses|messages|models)\/?$/, '')
-    return base.replace(/\/+$/, '')
-  },
-
   // 模型测试
   async test_model({ baseUrl, apiKey, modelId }) {
-    const url = `${this._normalizeBaseUrl(baseUrl)}/chat/completions`
+    const url = `${_normalizeBaseUrl(baseUrl)}/chat/completions`
     const body = JSON.stringify({
       model: modelId,
       messages: [{ role: 'user', content: 'Hi' }],
@@ -2332,7 +2334,7 @@ const handlers = {
   },
 
   async list_remote_models({ baseUrl, apiKey }) {
-    const url = `${this._normalizeBaseUrl(baseUrl)}/models`
+    const url = `${_normalizeBaseUrl(baseUrl)}/models`
     const headers = {}
     if (apiKey) headers['Authorization'] = `Bearer ${apiKey}`
     const controller = new AbortController()
