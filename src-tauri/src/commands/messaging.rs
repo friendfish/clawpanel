@@ -1173,9 +1173,35 @@ pub async fn run_channel_action(
 
     // weixin install 走 npx 而非 openclaw CLI
     if platform == "weixin" && action == "install" {
-        let weixin_spec = match &version {
-            Some(v) if !v.is_empty() => format!("@tencent-weixin/openclaw-weixin-cli@{}", v),
-            _ => "@tencent-weixin/openclaw-weixin-cli@latest".to_string(),
+        // 微信 CLI 版本号独立于 OpenClaw（1.0.x / 2.0.x），不能用 OpenClaw 版本号 pin
+        // v2.0.1 需要 OpenClaw >= 2026.3.22 的 SDK，旧版用 v1.0.3（最后兼容版）
+        let weixin_spec = if version.as_deref().map_or(false, |v| !v.is_empty()) {
+            format!(
+                "@tencent-weixin/openclaw-weixin-cli@{}",
+                version.as_deref().unwrap()
+            )
+        } else {
+            // 检测 OpenClaw 版本，决定装哪个
+            let oc_ver = crate::utils::resolve_openclaw_cli_path()
+                .and_then(|_| {
+                    let out = crate::utils::openclaw_command()
+                        .arg("--version")
+                        .output()
+                        .ok()?;
+                    let raw = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                    raw.split_whitespace().last().map(String::from)
+                })
+                .unwrap_or_default();
+            let oc_nums: Vec<u32> = oc_ver
+                .split(|c: char| !c.is_ascii_digit())
+                .filter_map(|s| s.parse().ok())
+                .collect();
+            let needs_legacy = oc_nums < vec![2026, 3, 22];
+            if needs_legacy {
+                "@tencent-weixin/openclaw-weixin-cli@1.0.3".to_string()
+            } else {
+                "@tencent-weixin/openclaw-weixin-cli@latest".to_string()
+            }
         };
         let _ = app.emit(
             "channel-action-log",
