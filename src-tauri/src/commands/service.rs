@@ -1593,6 +1593,7 @@ pub fn invalidate_cli_detection_cache() {}
 
 /// 跨平台统一的服务状态检测：纯 TCP 端口连通性（macOS/Linux 使用）
 #[cfg(not(target_os = "windows"))]
+#[allow(dead_code)]
 fn check_tcp_service_status(_uid: u32, _label: &str) -> (bool, Option<u32>) {
     let port = crate::commands::gateway_listen_port();
     let addr = format!("127.0.0.1:{port}");

@@ -1548,10 +1548,9 @@ pub async fn get_version_info() -> Result<VersionInfo, String> {
 }
 
 fn scan_cli_identity(cli_path: &std::path::Path) -> String {
-    let mut identity_path = cli_path.to_path_buf();
-
     #[cfg(target_os = "windows")]
-    {
+    let identity_path = {
+        let mut identity_path = cli_path.to_path_buf();
         let file_name = cli_path
             .file_name()
             .and_then(|name| name.to_str())
@@ -1566,7 +1565,11 @@ fn scan_cli_identity(cli_path: &std::path::Path) -> String {
                 identity_path = cmd_path;
             }
         }
-    }
+        identity_path
+    };
+
+    #[cfg(not(target_os = "windows"))]
+    let identity_path = cli_path.to_path_buf();
 
     identity_path
         .canonicalize()
