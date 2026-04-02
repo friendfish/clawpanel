@@ -4,6 +4,6 @@
   "hash": "sha256:e17e80ad365df3f301277afea66dd452a83685bec74fc679e149bfb1a532e216",
   "url": "https://github.com/qingchencloud/clawpanel/releases/download/v0.11.2/web-0.11.2.zip",
   "size": 2254331,
-  "changelog": "",
+  "changelog": "修复 Gateway 归属误判，避免将当前实例误报为外部实例或未运行。",
   "releasedAt": "2026-04-02T10:28:38Z"
 }
