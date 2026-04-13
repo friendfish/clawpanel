@@ -96,6 +96,33 @@ export function render() {
   }
 
   function draw() {
+    // 加载骨架屏
+    if (loading) {
+      el.innerHTML = `
+        <div class="page-header" style="display:flex;align-items:center;gap:12px">
+          <h1 style="margin:0">${t('engine.hermesDashboardTitle')}</h1>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:20px">
+          ${[1,2,3,4].map(() => `<div class="card"><div class="card-body" style="padding:16px">
+            <div class="skeleton-line" style="width:60%;height:12px;margin-bottom:10px"></div>
+            <div class="skeleton-line" style="width:80%;height:20px"></div>
+          </div></div>`).join('')}
+        </div>
+        <div class="card" style="margin-bottom:20px"><div class="card-body" style="padding:20px">
+          <div class="skeleton-line" style="width:40%;height:16px;margin-bottom:16px"></div>
+          <div style="display:flex;gap:6px;margin-bottom:14px">${[1,2,3,4].map(() => '<div class="skeleton-line" style="width:60px;height:24px;border-radius:12px"></div>').join('')}</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+            <div class="skeleton-line" style="height:36px"></div>
+            <div class="skeleton-line" style="height:36px"></div>
+          </div>
+        </div></div>
+        <div class="card" style="margin-bottom:20px"><div class="card-body" style="padding:16px">
+          <div class="skeleton-line" style="width:120px;height:32px;border-radius:6px"></div>
+        </div></div>
+      `
+      return
+    }
+
     const gwRunning = info?.gatewayRunning
     const port = info?.gatewayPort || 8642
     const version = info?.version || '-'

@@ -31,6 +31,12 @@
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
+.skeleton-line {
+  background: linear-gradient(90deg, var(--bg-secondary) 25%, var(--bg-tertiary, var(--bg-card-hover)) 50%, var(--bg-secondary) 75%);
+  background-size: 200% 100%;
+  animation: skeleton-shine 1.4s ease infinite;
+  border-radius: 4px;
+}
 
 /* 卡片 */
 .card {

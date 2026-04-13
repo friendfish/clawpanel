@@ -88,6 +88,13 @@ export async function activateEngine(id, persist = true) {
     setDefaultRoute(engine.getDefaultRoute())
   }
 
+  // 切换时启动新引擎（检测安装状态等），初始化由 main.js 处理
+  if (persist && engine.boot) {
+    try { await engine.boot() } catch (e) {
+      console.warn('[engine-manager] boot 失败:', e)
+    }
+  }
+
   // 持久化到 clawpanel.json
   if (persist) {
     try {

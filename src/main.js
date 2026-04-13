@@ -370,6 +370,28 @@ async function boot() {
       }).catch(() => {})
     : Promise.resolve()
 
+  // --- 引擎状态监听管理 ---
+  let _engineStateUnsub = null
+  let _engineReadyUnsub = null
+  function bindEngineListeners(engine) {
+    // 清理旧监听
+    if (_engineStateUnsub) { _engineStateUnsub(); _engineStateUnsub = null }
+    if (_engineReadyUnsub) { _engineReadyUnsub(); _engineReadyUnsub = null }
+    // 注册新监听
+    if (engine.onStateChange) {
+      _engineStateUnsub = engine.onStateChange(() => renderSidebar(sidebar))
+    }
+    if (engine.onReadyChange) {
+      _engineReadyUnsub = engine.onReadyChange(() => renderSidebar(sidebar))
+    }
+  }
+
+  // 引擎切换时：重新绑定状态监听 + 刷新侧边栏
+  onEngineChange((engine) => {
+    bindEngineListeners(engine)
+    renderSidebar(sidebar)
+  })
+
   ensureWebSession.then(() => getActiveEngineId() === 'openclaw' ? loadActiveInstance() : Promise.resolve()).then(async () => {
     const engine = getActiveEngine()
     if (!engine) return
@@ -381,12 +403,7 @@ async function boot() {
     renderSidebar(sidebar)
 
     // 监听引擎状态变化（如 setup 完成后 ready 变为 true），自动刷新侧边栏
-    if (engine.onStateChange) {
-      engine.onStateChange(() => renderSidebar(sidebar))
-    }
-    if (engine.onReadyChange) {
-      engine.onReadyChange(() => renderSidebar(sidebar))
-    }
+    bindEngineListeners(engine)
 
     if (!engine.isReady()) {
       setDefaultRoute(engine.getSetupRoute())
