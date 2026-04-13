@@ -2638,6 +2638,17 @@ fn read_version_from_installation(cli_path: &std::path::Path) -> Option<String> 
                 }
             }
         }
+        // CLI 本体位于包目录中时（如 npm 全局安装：nvm、Homebrew 等），
+        // 直接读取同目录的 package.json（即该包自身的版本文件）
+        let own_pkg = dir.join("package.json");
+        if let Ok(content) = std::fs::read_to_string(&own_pkg) {
+            if let Some(ver) = serde_json::from_str::<serde_json::Value>(&content)
+                .ok()
+                .and_then(|v| v.get("version")?.as_str().map(String::from))
+            {
+                return Some(ver);
+            }
+        }
         // 根据 CLI 路径判断来源，决定 package.json 检查顺序
         // 避免残留的另一来源包被优先读取
         let cli_source = crate::utils::classify_cli_source(&cli_path.to_string_lossy());
