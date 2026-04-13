@@ -4,7 +4,7 @@
  */
 import { api } from '../lib/tauri-api.js'
 import { toast } from '../components/toast.js'
-import { showUpgradeModal, showConfirm } from '../components/modal.js'
+import { showUpgradeModal, showConfirm, showContentModal } from '../components/modal.js'
 import { setUpgrading } from '../lib/app-state.js'
 import { icon, statusIcon } from '../lib/icons.js'
 import { t, getLang } from '../lib/i18n.js'
@@ -107,7 +107,7 @@ async function loadHermesData(page) {
           ${model ? `<span style="color:var(--text-secondary)">${t('engine.dashModel')}: ${esc(model)}</span>` : ''}
           ${!installed ? `<a class="btn btn-primary btn-sm" href="#/h/setup" style="${btnSm}">${t('about.hermesSetup')}</a>` : ''}
           ${installed ? `
-            <a class="btn btn-secondary btn-sm" href="#/h/setup" style="${btnSm}">${t('about.hermesConfig')}</a>
+            <button class="btn btn-secondary btn-sm" id="btn-hermes-config" style="${btnSm}">${t('about.hermesConfig')}</button>
             <button class="btn btn-secondary btn-sm" id="btn-hermes-upgrade" style="${btnSm}">${t('about.hermesUpgrade')}</button>
             <button class="btn btn-danger btn-sm" id="btn-hermes-uninstall" style="${btnSm}">${t('about.hermesUninstall')}</button>
           ` : ''}
@@ -122,45 +122,102 @@ async function loadHermesData(page) {
 
     // Hermes 管理按钮事件
     if (installed) {
-      const upgradeBtn = cards.querySelector('#btn-hermes-upgrade')
-      const uninstallBtn = cards.querySelector('#btn-hermes-uninstall')
-
-      if (upgradeBtn) {
-        upgradeBtn.onclick = async () => {
-          upgradeBtn.disabled = true
-          upgradeBtn.textContent = t('about.upgrading')
-          try {
-            const ver = await api.updateHermes()
-            toast(t('about.hermesUpgradeOk', { version: ver || '' }), 'success')
-            loadHermesData(page)
-          } catch (e) {
-            toast(t('about.hermesUpgradeFail', { error: e.message || e }), 'error')
-          } finally {
-            upgradeBtn.disabled = false
-            upgradeBtn.textContent = t('about.hermesUpgrade')
-          }
+      // --- 配置模态框 ---
+      cards.querySelector('#btn-hermes-config')?.addEventListener('click', async () => {
+        try {
+          const cfg = await api.hermesReadConfig()
+          const maskedKey = cfg.api_key ? cfg.api_key.slice(0, 6) + '••••' + cfg.api_key.slice(-4) : t('about.notSet')
+          const overlay = showContentModal({
+            title: `Hermes Agent ${t('about.hermesConfig')}`,
+            width: 480,
+            content: `
+              <div style="display:grid;gap:12px;font-size:13px;line-height:1.6">
+                <div style="display:flex;gap:8px"><span style="color:var(--text-tertiary);min-width:90px">${t('engine.configProvider')}:</span><span style="word-break:break-all">${esc(cfg.provider || '-')}</span></div>
+                <div style="display:flex;gap:8px"><span style="color:var(--text-tertiary);min-width:90px">Base URL:</span><span style="word-break:break-all">${esc(cfg.base_url || '-')}</span></div>
+                <div style="display:flex;gap:8px"><span style="color:var(--text-tertiary);min-width:90px">API Key:</span><span style="font-family:monospace">${esc(maskedKey)}</span></div>
+                <div style="display:flex;gap:8px"><span style="color:var(--text-tertiary);min-width:90px">${t('engine.configModel')}:</span><span style="word-break:break-all">${esc(cfg.model_raw || cfg.model || '-')}</span></div>
+                <div style="display:flex;gap:8px"><span style="color:var(--text-tertiary);min-width:90px">${t('about.hermesConfigFile')}:</span><span style="color:${cfg.config_exists ? 'var(--success)' : 'var(--warning)'}">${cfg.config_exists ? '✓' : '✗'}</span></div>
+              </div>
+            `,
+            buttons: [
+              { label: t('about.hermesGoSetup'), className: 'btn btn-primary btn-sm', id: 'btn-goto-setup' },
+            ],
+          })
+          overlay.querySelector('#btn-goto-setup')?.addEventListener('click', () => {
+            overlay.close()
+            window.location.hash = '#/h/setup'
+          })
+        } catch (e) {
+          toast(t('common.loadFailed') + ': ' + (e.message || e), 'error')
         }
-      }
+      })
 
-      if (uninstallBtn) {
-        uninstallBtn.onclick = async () => {
-          const confirmed = confirm(t('about.hermesUninstallConfirm'))
-          if (!confirmed) return
-          const cleanConfig = confirm(t('about.hermesUninstallCleanConfig'))
-          uninstallBtn.disabled = true
-          uninstallBtn.textContent = t('about.uninstalling')
-          try {
-            await api.uninstallHermes(cleanConfig)
-            toast(t('about.hermesUninstallOk'), 'success')
-            loadHermesData(page)
-          } catch (e) {
-            toast(t('about.hermesUninstallFail', { error: e.message || e }), 'error')
-          } finally {
-            uninstallBtn.disabled = false
-            uninstallBtn.textContent = t('about.hermesUninstall')
-          }
+      // --- 升级模态框（带实时日志） ---
+      cards.querySelector('#btn-hermes-upgrade')?.addEventListener('click', async () => {
+        const confirmed = await showConfirm(t('about.hermesUpgradeConfirm'))
+        if (!confirmed) return
+
+        const modal = showUpgradeModal(t('about.hermesUpgrade') + ' Hermes Agent')
+        modal.setProgressLabels({
+          preparing: t('about.upgrading'),
+          downloading: t('about.upgrading'),
+          installing: t('about.upgrading'),
+          done: t('about.hermesUpgradeOk', { version: '' }),
+        })
+        modal.setProgress(10)
+
+        let unlisten = null
+        try {
+          const { listen } = await import('@tauri-apps/api/event')
+          unlisten = await listen('hermes-install-log', (e) => {
+            modal.appendLog(String(e.payload))
+          })
+        } catch (_) {}
+
+        modal.setProgress(20)
+        try {
+          const ver = await api.updateHermes()
+          modal.setProgress(100)
+          modal.setDone(t('about.hermesUpgradeOk', { version: ver || '' }))
+          modal.onClose(() => loadHermesData(page))
+        } catch (e) {
+          modal.appendLog(`❌ ${e.message || e}`)
+          modal.setError(t('about.hermesUpgradeFail', { error: e.message || e }))
+          modal.onClose(() => loadHermesData(page))
+        } finally {
+          if (unlisten) unlisten()
         }
-      }
+      })
+
+      // --- 卸载模态框（确认 + 实时日志） ---
+      cards.querySelector('#btn-hermes-uninstall')?.addEventListener('click', async () => {
+        const confirmed = await showConfirm(t('about.hermesUninstallConfirm'))
+        if (!confirmed) return
+        const cleanConfig = await showConfirm(t('about.hermesUninstallCleanConfig'))
+
+        const modal = showUpgradeModal(t('about.hermesUninstall') + ' Hermes Agent')
+        modal.setProgressLabels({
+          preparing: t('about.uninstalling'),
+          downloading: t('about.uninstalling'),
+          installing: t('about.uninstalling'),
+          done: t('about.hermesUninstallOk'),
+        })
+        modal.appendLog('🗑️ ' + t('about.uninstalling'))
+        if (cleanConfig) modal.appendLog('📁 ' + t('about.hermesUninstallCleanConfigHint'))
+        modal.setProgress(30)
+
+        try {
+          const result = await api.uninstallHermes(cleanConfig)
+          modal.appendLog('✅ ' + (result || t('about.hermesUninstallOk')))
+          modal.setProgress(100)
+          modal.setDone(t('about.hermesUninstallOk'))
+          modal.onClose(() => loadHermesData(page))
+        } catch (e) {
+          modal.appendLog(`❌ ${e.message || e}`)
+          modal.setError(t('about.hermesUninstallFail', { error: e.message || e }))
+          modal.onClose(() => loadHermesData(page))
+        }
+      })
     }
   } catch {
     cards.innerHTML = `<div class="stat-card"><div class="stat-card-label">${t('common.loadFailed')}</div></div>`
