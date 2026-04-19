@@ -85,36 +85,49 @@
 
 /* === Engine Switcher === */
 .engine-switcher {
-  padding: var(--space-xs) var(--space-sm);
+  padding: var(--space-xs) var(--space-sm) var(--space-sm);
   border-bottom: 1px solid var(--border-secondary);
   position: relative;
+}
+.engine-switcher-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  padding: 2px 4px 4px;
 }
 .engine-current {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
   width: 100%;
-  padding: 5px 10px;
-  border: 1px solid var(--border-secondary);
+  padding: 7px 10px;
+  border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--border-secondary));
   border-radius: var(--radius-sm);
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
-  font-size: var(--font-size-xs);
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg-tertiary));
+  color: var(--text-primary);
+  font-size: var(--font-size-sm);
+  font-weight: 500;
   cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
+  transition: border-color 0.15s, background 0.15s, transform 0.1s;
 }
 .engine-current:hover {
   border-color: var(--accent);
-  background: var(--bg-secondary);
+  background: color-mix(in srgb, var(--accent) 14%, var(--bg-secondary));
+}
+.engine-current:active {
+  transform: translateY(1px);
 }
 .engine-icon {
   flex-shrink: 0;
   display: flex;
   align-items: center;
+  color: var(--accent);
 }
 .engine-icon svg {
-  width: 14px;
-  height: 14px;
+  width: 16px;
+  height: 16px;
 }
 .engine-label {
   flex: 1;
@@ -122,11 +135,14 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
-  font-weight: 500;
 }
 .engine-chevron {
   flex-shrink: 0;
-  opacity: 0.4;
+  opacity: 0.75;
+  transition: transform 0.15s;
+}
+.engine-current[aria-expanded="true"] .engine-chevron {
+  transform: rotate(180deg);
 }
 .engine-dropdown {
   display: none;

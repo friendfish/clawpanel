@@ -112,10 +112,11 @@ function _renderEngineSwitcher() {
   const active = getActiveEngine()
   if (!active) return ''
   return `<div class="engine-switcher" id="engine-switcher">
-    <button class="engine-current" id="btn-engine-toggle">
+    <div class="engine-switcher-label">${_escSidebar(t('engine.switcherSectionLabel'))}</div>
+    <button class="engine-current" id="btn-engine-toggle" title="${_escSidebar(t('engine.switcherTooltip'))}" aria-haspopup="listbox" aria-expanded="false">
       <span class="engine-icon">${active.icon || ''}</span>
       <span class="engine-label">${_escSidebar(active.name)}</span>
-      <svg class="engine-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M6 9l6 6 6-6"/></svg>
+      <svg class="engine-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M6 9l6 6 6-6"/></svg>
     </button>
     <div class="engine-dropdown" id="engine-dropdown">
       ${engines.map(e => `<div class="engine-option${e.id === active.id ? ' active' : ''}" data-engine="${e.id}">
@@ -130,13 +131,21 @@ function _renderEngineSwitcher() {
 function _closeEngineDropdown() {
   const dd = document.getElementById('engine-dropdown')
   if (dd) dd.classList.remove('open')
+  const btn = document.getElementById('btn-engine-toggle')
+  if (btn) btn.setAttribute('aria-expanded', 'false')
 }
 
 function _toggleEngineDropdown() {
   const dd = document.getElementById('engine-dropdown')
   if (!dd) return
-  if (dd.classList.contains('open')) { dd.classList.remove('open'); return }
+  const btn = document.getElementById('btn-engine-toggle')
+  if (dd.classList.contains('open')) {
+    dd.classList.remove('open')
+    if (btn) btn.setAttribute('aria-expanded', 'false')
+    return
+  }
   dd.classList.add('open')
+  if (btn) btn.setAttribute('aria-expanded', 'true')
 }
 
 const LS_SIDEBAR_COLLAPSED = 'clawpanel_sidebar_collapsed'
