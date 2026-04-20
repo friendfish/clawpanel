@@ -203,13 +203,43 @@ install_openclaw() {
     fi
 }
 
+# 修复 npm 缓存权限（曾用 sudo npm install 导致缓存被 root 拥有）
+fix_npm_cache_permissions() {
+    local npm_cache_dir="$HOME/.npm"
+    if [ -d "$npm_cache_dir" ]; then
+        # 检查是否存在 root 拥有的文件
+        local root_files=$(find "$npm_cache_dir" -uid 0 2>/dev/null | head -1)
+        if [ -n "$root_files" ]; then
+            echo "⚠️  检测到 npm 缓存中存在 root 权限文件，正在修复..."
+            if [ "$IS_ROOT" = true ]; then
+                chown -R "$(stat -c '%u:%g' "$HOME")" "$npm_cache_dir" 2>/dev/null || true
+            else
+                sudo chown -R "$(id -u):$(id -g)" "$npm_cache_dir" 2>/dev/null || true
+            fi
+            echo "✅ npm 缓存权限已修复"
+        fi
+    fi
+}
+
 # 克隆并安装 ClawPanel
 install_clawpanel() {
+    # 预检 npm 缓存权限（#236: 全新系统部署时 npm cache 可能被 root 污染）
+    fix_npm_cache_permissions
+
     if [ -d "$INSTALL_DIR" ] && [ -f "$INSTALL_DIR/package.json" ]; then
         echo "📦 ClawPanel 已存在，更新中..."
         cd "$INSTALL_DIR"
         git pull origin main 2>/dev/null || true
-        npm install --registry "$NPM_REGISTRY"
+        # 清理可能损坏的 node_modules（上次 npm install 失败残留）
+        if [ -d "node_modules" ] && [ ! -f "node_modules/.package-lock.json" ]; then
+            echo "⚠️  检测到不完整的 node_modules，清理后重新安装..."
+            rm -rf node_modules
+        fi
+        npm install --registry "$NPM_REGISTRY" || {
+            echo "⚠️  npm install 失败，清理 node_modules 后重试..."
+            rm -rf node_modules
+            npm install --registry "$NPM_REGISTRY"
+        }
     else
         echo "📦 克隆 ClawPanel..."
         mkdir -p "$INSTALL_DIR"
@@ -218,7 +248,11 @@ install_clawpanel() {
             git clone "$REPO_URL_GITEE" "$INSTALL_DIR"
         fi
         cd "$INSTALL_DIR"
-        npm install --registry "$NPM_REGISTRY"
+        npm install --registry "$NPM_REGISTRY" || {
+            echo "⚠️  npm install 失败，清理 node_modules 后重试..."
+            rm -rf node_modules
+            npm install --registry "$NPM_REGISTRY"
+        }
     fi
     # 生产构建（生成优化后的静态文件）
     echo "📦 构建生产版本..."
