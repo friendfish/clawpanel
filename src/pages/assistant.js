@@ -3082,7 +3082,7 @@ function showSettings() {
             </div>
           </div>
 
-          <!-- #Compat-3: 备用模型组（可折叠） -->
+          <!-- #Compat-3: 备用模型组（重设计：极简一行 + 厂商预设快捷添加） -->
           <details class="ast-fallback-section" id="ast-fallback-section" ${(c.fallbackModels || []).length ? 'open' : ''} style="margin-top:14px">
             <summary style="cursor:pointer;padding:10px 14px;border-radius:var(--radius-md);background:var(--bg-secondary);border:1px solid var(--border-primary);display:flex;justify-content:space-between;align-items:center;gap:8px;list-style:none;user-select:none">
               <div style="display:flex;align-items:center;gap:8px;flex:1;min-width:0">
@@ -3093,8 +3093,20 @@ function showSettings() {
             </summary>
             <div style="padding:10px 4px 4px">
               <div class="form-hint" style="margin-bottom:10px">${t('assistant.fallbackModelsDesc')}</div>
-              <div id="ast-fallback-list" style="display:flex;flex-direction:column;gap:10px"></div>
-              <button type="button" class="btn btn-sm btn-secondary" id="ast-fallback-add" style="margin-top:10px;width:100%">${icon('plus', 13)} ${t('assistant.fallbackAdd')}</button>
+              <!-- 主模型只读行（让用户看到完整调用链） -->
+              <div id="ast-fallback-primary-row" style="display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--bg-tertiary);border:1px dashed var(--border-primary);border-radius:var(--radius-md);margin-bottom:6px;font-size:12px">
+                <span style="font-size:14px">📌</span>
+                <span style="color:var(--text-tertiary);white-space:nowrap">${t('assistant.fallbackPrimaryRow')}</span>
+                <span id="ast-fallback-primary-model" style="flex:1;min-width:0;font-family:var(--font-mono);color:var(--text-primary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></span>
+                <span id="ast-fallback-primary-host" style="color:var(--text-tertiary);font-size:11px;white-space:nowrap"></span>
+              </div>
+              <!-- 备用列表 -->
+              <div id="ast-fallback-list" style="display:flex;flex-direction:column;gap:4px"></div>
+              <!-- 厂商预设快捷添加区 -->
+              <div id="ast-fallback-add-area" style="margin-top:12px;padding-top:10px;border-top:1px dashed var(--border-primary)">
+                <div class="form-hint" style="margin-bottom:6px">${t('assistant.fallbackPickProviderHint')}</div>
+                <div id="ast-fallback-presets" style="display:flex;flex-wrap:wrap;gap:6px"></div>
+              </div>
             </div>
           </details>
         </div>
@@ -3224,76 +3236,201 @@ function showSettings() {
   const renderFallbackList = () => {
     if (!fallbackListEl) return
     if (fallbackDrafts.length === 0) {
-      fallbackListEl.innerHTML = `<div class="form-hint" style="text-align:center;padding:16px 0;color:var(--text-tertiary);font-style:italic">${t('assistant.fallbackEmpty')}</div>`
+      fallbackListEl.innerHTML = `<div class="form-hint" style="text-align:center;padding:12px 0;color:var(--text-tertiary);font-style:italic">${t('assistant.fallbackEmpty')}</div>`
       updateFallbackCount()
       return
     }
-    fallbackListEl.innerHTML = fallbackDrafts.map((fb, idx) => `
-      <div class="ast-fallback-card" data-fb-idx="${idx}" style="border:1px solid var(--border-primary);border-radius:var(--radius-md);background:var(--bg-secondary);padding:10px 12px;${fb.enabled === false ? 'opacity:0.55;' : ''}">
-        <div style="display:flex;align-items:center;gap:8px;margin-bottom:8px">
-          <span style="font-size:11px;color:var(--text-tertiary);font-weight:500">#${idx + 2}</span>
-          <input class="form-input ast-fb-label" placeholder="${t('assistant.fallbackLabelPlaceholder')}" value="${escHtml(fb.label || '')}" style="flex:1;font-size:12px;padding:4px 8px">
-          <label class="ast-switch-inline" title="${t('assistant.fallbackEnabled')}" style="display:flex;align-items:center;gap:4px;font-size:11px;color:var(--text-tertiary);cursor:pointer;white-space:nowrap">
-            <input type="checkbox" class="ast-fb-enabled" ${fb.enabled !== false ? 'checked' : ''} style="margin:0">
-            <span>${t('assistant.fallbackEnabled')}</span>
-          </label>
-          <button type="button" class="btn btn-xs btn-secondary ast-fb-remove" title="${t('assistant.fallbackRemove')}" style="padding:3px 8px;color:var(--error)">✕</button>
+    fallbackListEl.innerHTML = fallbackDrafts.map((fb, idx) => {
+      const expanded = fb._editing === true || (!fb.baseUrl && !fb.model)
+      const modelText = fb.model || t('assistant.fallbackUnnamedModel')
+      const hostText = fb.baseUrl ? hostOf(fb.baseUrl) : ''
+      const brandText = fb._brandLabel ? `<span style="color:var(--primary);font-size:10px;padding:1px 5px;border:1px solid var(--primary);border-radius:3px;margin-right:4px">${escHtml(fb._brandLabel)}</span>` : ''
+      return `
+      <div class="ast-fallback-row" data-fb-idx="${idx}" draggable="true" style="border:1px solid var(--border-primary);border-radius:var(--radius-md);background:var(--bg-secondary);transition:border-color 0.15s">
+        <div style="display:flex;align-items:center;gap:8px;padding:6px 10px;user-select:none">
+          <span class="ast-fb-handle" style="color:var(--text-tertiary);cursor:grab;font-size:13px;line-height:1" title="${t('assistant.dragHint')}">⋮⋮</span>
+          <span style="color:var(--text-tertiary);font-size:11px;font-weight:500;min-width:22px">#${idx + 2}</span>
+          <div style="flex:1;min-width:0;display:flex;align-items:center;gap:6px;overflow:hidden">
+            ${brandText}
+            <span style="font-family:var(--font-mono);font-size:12px;color:${fb.model ? 'var(--text-primary)' : 'var(--text-tertiary)'};overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${escHtml(modelText)}</span>
+            ${hostText ? `<span style="color:var(--text-tertiary);font-size:11px;white-space:nowrap">·&nbsp;${escHtml(hostText)}</span>` : ''}
+          </div>
+          <button type="button" class="btn btn-xs btn-ghost ast-fb-toggle" style="padding:2px 8px;font-size:11px;color:var(--text-secondary)">${expanded ? t('assistant.fallbackHideAdvanced') : t('assistant.fallbackEditAdvanced')}</button>
+          <button type="button" class="btn btn-xs btn-ghost ast-fb-remove" title="${t('assistant.fallbackRemove')}" style="padding:2px 6px;color:var(--error);font-size:12px">✕</button>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 120px;gap:6px;margin-bottom:6px">
-          <input class="form-input ast-fb-url" placeholder="${t('assistant.fallbackBaseUrlPlaceholder')}" value="${escHtml(fb.baseUrl || '')}" style="font-size:12px;padding:4px 8px">
-          <select class="form-input ast-fb-apitype" style="font-size:12px;padding:4px 8px">
-            ${API_TYPES.map(at => `<option value="${at.value}" ${normalizeApiType(fb.apiType) === at.value ? 'selected' : ''}>${at.label}</option>`).join('')}
-          </select>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px">
-          <input class="form-input ast-fb-key" type="password" placeholder="${t('assistant.fallbackApiKeyPlaceholder')}" value="${escHtml(fb.apiKey || '')}" style="font-size:12px;padding:4px 8px">
-          <input class="form-input ast-fb-model" placeholder="${t('assistant.fallbackModelPlaceholder')}" value="${escHtml(fb.model || '')}" style="font-size:12px;padding:4px 8px">
+        <div class="ast-fb-edit" style="display:${expanded ? 'block' : 'none'};padding:6px 10px 10px;border-top:1px dashed var(--border-primary)">
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:6px">
+            <input class="form-input ast-fb-key" type="password" placeholder="${t('assistant.fallbackApiKeyPlaceholder')}" value="${escHtml(fb.apiKey || '')}" style="font-size:12px;padding:4px 8px">
+            <input class="form-input ast-fb-model" placeholder="${t('assistant.fallbackModelPlaceholder')}" value="${escHtml(fb.model || '')}" style="font-size:12px;padding:4px 8px">
+          </div>
+          <details class="ast-fb-advanced" ${!fb.baseUrl || !API_TYPES.some(at => at.value === normalizeApiType(fb.apiType)) ? 'open' : ''} style="margin-top:4px">
+            <summary style="cursor:pointer;font-size:11px;color:var(--text-tertiary);padding:2px 0;list-style:none">▸ ${t('assistant.fallbackShowAdvanced')}</summary>
+            <div style="display:grid;grid-template-columns:1fr 140px;gap:6px;margin-top:6px">
+              <input class="form-input ast-fb-url" placeholder="${t('assistant.fallbackBaseUrlPlaceholder')}" value="${escHtml(fb.baseUrl || '')}" style="font-size:12px;padding:4px 8px">
+              <select class="form-input ast-fb-apitype" style="font-size:12px;padding:4px 8px">
+                ${API_TYPES.map(at => `<option value="${at.value}" ${normalizeApiType(fb.apiType) === at.value ? 'selected' : ''}>${at.label}</option>`).join('')}
+              </select>
+            </div>
+          </details>
         </div>
       </div>
-    `).join('')
+    `}).join('')
 
-    // 绑定每张卡片的事件
-    fallbackListEl.querySelectorAll('.ast-fallback-card').forEach(card => {
-      const idx = parseInt(card.dataset.fbIdx, 10)
+    // 绑定事件
+    fallbackListEl.querySelectorAll('.ast-fallback-row').forEach(row => {
+      const idx = parseInt(row.dataset.fbIdx, 10)
       const sync = () => {
         fallbackDrafts[idx] = {
           ...fallbackDrafts[idx],
-          label: card.querySelector('.ast-fb-label').value.trim(),
-          baseUrl: card.querySelector('.ast-fb-url').value.trim(),
-          apiKey: card.querySelector('.ast-fb-key').value.trim(),
-          model: card.querySelector('.ast-fb-model').value.trim(),
-          apiType: normalizeApiType(card.querySelector('.ast-fb-apitype').value),
-          enabled: card.querySelector('.ast-fb-enabled').checked,
+          baseUrl: (row.querySelector('.ast-fb-url')?.value || fallbackDrafts[idx].baseUrl || '').trim(),
+          apiKey: (row.querySelector('.ast-fb-key')?.value || '').trim(),
+          model: (row.querySelector('.ast-fb-model')?.value || '').trim(),
+          apiType: normalizeApiType(row.querySelector('.ast-fb-apitype')?.value || fallbackDrafts[idx].apiType),
         }
-        // 仅更新透明度和计数，不重渲染（避免输入框丢焦点）
-        card.style.opacity = fallbackDrafts[idx].enabled === false ? '0.55' : '1'
         updateFallbackCount()
+        // 实时更新折叠态显示的 model / hostname
+        const headerModel = row.querySelector('div > span[style*="var(--font-mono)"]')
+        if (headerModel) {
+          const m = fallbackDrafts[idx].model
+          headerModel.textContent = m || t('assistant.fallbackUnnamedModel')
+          headerModel.style.color = m ? 'var(--text-primary)' : 'var(--text-tertiary)'
+        }
       }
-      card.querySelectorAll('.ast-fb-label, .ast-fb-url, .ast-fb-key, .ast-fb-model, .ast-fb-apitype, .ast-fb-enabled').forEach(el => {
+      row.querySelectorAll('.ast-fb-url, .ast-fb-key, .ast-fb-model, .ast-fb-apitype').forEach(el => {
         el.addEventListener('input', sync)
         el.addEventListener('change', sync)
       })
-      card.querySelector('.ast-fb-remove').onclick = () => {
+      // 展开 / 收起
+      row.querySelector('.ast-fb-toggle').onclick = () => {
+        fallbackDrafts[idx]._editing = !(fallbackDrafts[idx]._editing === true || (!fallbackDrafts[idx].baseUrl && !fallbackDrafts[idx].model))
+        renderFallbackList()
+      }
+      // 删除
+      row.querySelector('.ast-fb-remove').onclick = () => {
         fallbackDrafts.splice(idx, 1)
+        renderFallbackList()
+      }
+      // HTML5 拖拽排序
+      row.ondragstart = (e) => {
+        e.dataTransfer.setData('text/plain', String(idx))
+        e.dataTransfer.effectAllowed = 'move'
+        row.style.opacity = '0.4'
+      }
+      row.ondragend = () => { row.style.opacity = '' }
+      row.ondragover = (e) => { e.preventDefault(); row.style.borderColor = 'var(--primary)' }
+      row.ondragleave = () => { row.style.borderColor = 'var(--border-primary)' }
+      row.ondrop = (e) => {
+        e.preventDefault()
+        row.style.borderColor = 'var(--border-primary)'
+        const from = parseInt(e.dataTransfer.getData('text/plain'), 10)
+        if (isNaN(from) || from === idx) return
+        const [moved] = fallbackDrafts.splice(from, 1)
+        fallbackDrafts.splice(idx, 0, moved)
         renderFallbackList()
       }
     })
     updateFallbackCount()
   }
-  renderFallbackList()
-  overlay.querySelector('#ast-fallback-add')?.addEventListener('click', () => {
-    // 默认从主模型推断 apiType，便于快速配同类备用
-    const mainApi = overlay.querySelector('#ast-apitype')?.value || _config.apiType || 'openai-completions'
+  // 添加一个厂商预设备用（点击快捷按钮触发）
+  const addFallbackFromPreset = (preset) => {
     fallbackDrafts.push({
-      label: '',
-      baseUrl: '',
+      baseUrl: preset.baseUrl,
       apiKey: '',
       model: '',
-      apiType: normalizeApiType(mainApi),
-      enabled: true,
+      apiType: normalizeApiType(preset.api),
+      _editing: true,
+      _brandLabel: preset.label,
     })
     renderFallbackList()
+    // 聚焦到刚加的 apiKey 输入
+    setTimeout(() => {
+      const last = fallbackListEl.querySelector('.ast-fallback-row:last-child .ast-fb-key')
+      last?.focus()
+    }, 30)
+  }
+  // 从主模型复制
+  const addFallbackFromPrimary = () => {
+    const baseUrl = overlay.querySelector('#ast-baseurl')?.value?.trim() || ''
+    const apiKey = overlay.querySelector('#ast-apikey')?.value?.trim() || ''
+    const model = overlay.querySelector('#ast-model')?.value?.trim() || ''
+    const apiType = overlay.querySelector('#ast-apitype')?.value || 'openai-completions'
+    fallbackDrafts.push({
+      baseUrl,
+      apiKey,
+      model,
+      apiType: normalizeApiType(apiType),
+      _editing: true,
+    })
+    renderFallbackList()
+    setTimeout(() => {
+      const last = fallbackListEl.querySelector('.ast-fallback-row:last-child .ast-fb-model')
+      last?.focus()
+      last?.select()
+    }, 30)
+  }
+  // 渲染厂商预设按钮（6 个最常用 + 从主模型复制 + 自定义 + 更多）
+  const TOP_PRESETS = ['qtcool', 'openai', 'anthropic', 'deepseek', 'google', 'ollama']
+  let showAllPresets = false
+  const renderPresetButtons = () => {
+    const shown = showAllPresets
+      ? PROVIDER_PRESETS
+      : PROVIDER_PRESETS.filter(p => TOP_PRESETS.includes(p.key))
+    const presetBtnHtml = shown.map(p => `
+      <button type="button" class="btn btn-xs btn-secondary ast-fb-preset-btn" data-preset-key="${p.key}" style="padding:4px 10px;font-size:11px;gap:4px">
+        ${p.badge ? `<span style="color:var(--warning);font-size:9px;margin-right:2px">★</span>` : ''}
+        ${escHtml(p.label)}
+      </button>
+    `).join('')
+    const extraBtnHtml = `
+      <button type="button" class="btn btn-xs btn-ghost" id="ast-fb-copy-primary" style="padding:4px 10px;font-size:11px;border:1px dashed var(--primary);color:var(--primary)">
+        ${icon('copy', 11)} ${t('assistant.fallbackAddCopyPrimary')}
+      </button>
+      <button type="button" class="btn btn-xs btn-ghost" id="ast-fb-custom" style="padding:4px 10px;font-size:11px;border:1px dashed var(--border-primary);color:var(--text-secondary)">
+        ${icon('plus', 11)} ${t('assistant.fallbackAddCustom')}
+      </button>
+      ${!showAllPresets ? `<button type="button" class="btn btn-xs btn-ghost" id="ast-fb-more" style="padding:4px 10px;font-size:11px;color:var(--text-tertiary)">${t('assistant.fallbackMoreProviders')}</button>` : ''}
+    `
+    fallbackPresetsEl.innerHTML = presetBtnHtml + extraBtnHtml
+
+    // 绑定每个预设按钮
+    fallbackPresetsEl.querySelectorAll('.ast-fb-preset-btn').forEach(btn => {
+      btn.onclick = () => {
+        const preset = PROVIDER_PRESETS.find(p => p.key === btn.dataset.presetKey)
+        if (preset) addFallbackFromPreset(preset)
+      }
+    })
+    // 从主模型复制
+    fallbackPresetsEl.querySelector('#ast-fb-copy-primary').onclick = addFallbackFromPrimary
+    // 自定义（空白）
+    fallbackPresetsEl.querySelector('#ast-fb-custom').onclick = () => {
+      const mainApi = overlay.querySelector('#ast-apitype')?.value || 'openai-completions'
+      fallbackDrafts.push({
+        baseUrl: '',
+        apiKey: '',
+        model: '',
+        apiType: normalizeApiType(mainApi),
+        _editing: true,
+      })
+      renderFallbackList()
+      setTimeout(() => {
+        const last = fallbackListEl.querySelector('.ast-fallback-row:last-child .ast-fb-key')
+        last?.focus()
+      }, 30)
+    }
+    // 更多服务商（展开全部）
+    fallbackPresetsEl.querySelector('#ast-fb-more')?.addEventListener('click', () => {
+      showAllPresets = true
+      renderPresetButtons()
+    })
+  }
+  // 主模型表单任一字段变更时，同步主模型只读行
+  ;['#ast-baseurl', '#ast-model', '#ast-apikey', '#ast-apitype'].forEach(sel => {
+    overlay.querySelector(sel)?.addEventListener('input', renderPrimaryRow)
+    overlay.querySelector(sel)?.addEventListener('change', renderPrimaryRow)
   })
+  renderPrimaryRow()
+  renderFallbackList()
+  renderPresetButtons()
 
   // Tab 切换
   overlay.querySelectorAll('.ast-tab').forEach(tab => {
@@ -3988,16 +4125,19 @@ function showSettings() {
     }
     // 知识库
     _config.knowledgeFiles = kbFiles
-    // #Compat-3: 备用模型组（过滤掉空卡片）
+    // #Compat-3: 备用模型组（过滤空卡 + 迁移清理老的禁用条目）
+    // 新 UI 不再暴露 enabled 开关（删除即停用），保存时：
+    // - 过滤掉空卡（baseUrl 或 model 为空）
+    // - 过滤掉老数据里 enabled===false 的条目（隐式迁移，用户以后看到的都是启用状态）
+    // - strip 掉 _editing / _brandLabel 等临时字段（只挑 5 个字段 map 出来）
     _config.fallbackModels = fallbackDrafts
-      .filter(f => f && f.baseUrl && f.model)
+      .filter(f => f && f.baseUrl && f.model && f.enabled !== false)
       .map(f => ({
         label: f.label || f.model,
         baseUrl: f.baseUrl,
         apiKey: f.apiKey || '',
         model: f.model,
         apiType: normalizeApiType(f.apiType),
-        enabled: f.enabled !== false,
       }))
     saveConfig()
     overlay.remove()
