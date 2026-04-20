@@ -127,14 +127,20 @@ function renderDefaultBar(page, state) {
         <div style="display:flex; align-items:center; gap:8px">
           <span style="display:inline-block;width:16px;font-size:12px;color:var(--text-tertiary)">${chevron}</span>
           <span>${t('models.systemModelTitle')}</span>
-          <div style="display:flex; gap:8px; margin-left: 12px; align-items: baseline;">
-            <span style="color:var(--success); font-family:var(--font-mono); font-size: 0.9em; font-weight: 500;">${primary || t('models.notConfigured')}</span>
-            <span style="font-size: 11px; color: var(--text-tertiary); font-weight: normal;">${t('models.nFallbacks', { count: fallbacks.length })}</span>
+          <div style="display:flex; gap:8px; margin-left: 12px; align-items: baseline; flex: 1; min-width: 0; overflow: hidden;">
+            <span style="color:var(--success); font-family:var(--font-mono); font-size: 0.9em; font-weight: 500; white-space: nowrap;">${primary || t('models.notConfigured')}</span>
+            <span style="font-size: 11px; color: var(--text-tertiary); font-weight: normal; white-space: nowrap;">${t('models.nFallbacks', { count: fallbacks.length })}</span>
           </div>
         </div>
       </div>
       
-      <div id="fallback-waterfall-container" style="display:${state.showFallbackEditor ? 'block' : 'none'}; margin-top: 16px; border-top: 1px dashed var(--border-color); padding-top: 16px;">
+      ${collapsed && fallbacks.length > 0 ? `
+      <div style="margin-top: 12px; display: flex; flex-wrap: nowrap; overflow: hidden; gap: 6px; align-items: center; padding-left: 24px;">
+        ${fallbacks.map(f => `<span style="background: var(--bg-tertiary); border: 1px solid var(--border-color); padding: 2px 8px; border-radius: 12px; font-size: 11px; font-family: var(--font-mono); color: var(--text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px;" title="${f}">${f}</span>`).join('<span style="color: var(--text-tertiary); font-size: 10px; flex-shrink: 0;">→</span>')}
+      </div>
+      ` : ''}
+      
+      <div id="fallback-waterfall-container" style="display:${state.showFallbackEditor ? 'block' : 'none'}; margin-top: 8px;">
         ${renderFallbackWaterfall(state)}
       </div>
       
@@ -182,7 +188,7 @@ function renderFallbackWaterfall(state) {
       </div>
       
       <div style="display: grid; grid-template-columns: 1fr 1.2fr; gap: 24px;">
-        <div>
+        <div style="background: var(--bg-tertiary); padding: 12px; border-radius: var(--radius-md); border: 1px solid var(--border-color);">
           <div style="font-size: var(--font-size-xs); font-weight: bold; margin-bottom: 8px; color: var(--text-tertiary);">${t('models.activeChainTitle')}</div>
           <div id="active-fallback-list" style="display: flex; flex-direction: column; gap: 4px; min-height: 50px;">
             ${currentFallbacks.map((f, i) => `
@@ -201,7 +207,7 @@ function renderFallbackWaterfall(state) {
           </div>
         </div>
         
-        <div>
+        <div style="background: var(--bg-tertiary); padding: 12px; border-radius: var(--radius-md); border: 1px solid var(--border-color);">
           <div style="font-size: var(--font-size-xs); font-weight: bold; margin-bottom: 8px; color: var(--text-tertiary);">${t('models.candidatePoolTitle')}</div>
           <div id="candidate-model-pool" style="display: flex; flex-direction: column; gap: 6px; max-height: 300px; overflow-y: auto; padding-right: 4px;">
             ${Object.keys(candidatesByProvider).length === 0 ? `<div style="font-size: 12px; color: var(--text-tertiary); text-align: center; padding: 20px;">${t('models.noCandidateModel')}</div>` : 
@@ -231,10 +237,7 @@ function renderFallbackWaterfall(state) {
         </div>
       </div>
       
-      <div style="margin-top: 16px; display: flex; justify-content: flex-end; gap: 8px;">
-        <button class="btn btn-sm btn-secondary" id="btn-cancel-fallback">${t('models.cancel')}</button>
-        <button class="btn btn-sm btn-primary" id="btn-save-fallback">${t('models.saveAndApply')}</button>
-      </div>
+      
     </div>
   `
 }
