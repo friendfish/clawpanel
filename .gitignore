@@ -64,6 +64,9 @@ docs/promo-video.mp4
 # Rust 开发工具
 src-tauri/.cargo/
 .codex/
+
+# Tauri 生成的 schema 文件（Linux 平台特定）
+src-tauri/gen/schemas/linux-schema.json
 # AI 上下文记忆
 .context.md
 CONTEXT_STATE.md

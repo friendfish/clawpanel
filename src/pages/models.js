@@ -126,10 +126,10 @@ function renderDefaultBar(page, state) {
       <div class="config-section-title" id="system-model-title" style="display:flex; justify-content:space-between; align-items:center; cursor:pointer; user-select:none;">
         <div style="display:flex; align-items:center; gap:8px">
           <span style="display:inline-block;width:16px;font-size:12px;color:var(--text-tertiary)">${chevron}</span>
-          <span>系统主/备模型</span>
+          <span>${t('models.systemModelTitle')}</span>
           <div style="display:flex; gap:8px; margin-left: 12px; align-items: baseline;">
-            <span style="color:var(--success); font-family:var(--font-mono); font-size: 0.9em; font-weight: 500;">${primary || '未配置'}</span>
-            <span style="font-size: 11px; color: var(--text-tertiary); font-weight: normal;">${fallbacks.length} 个备选</span>
+            <span style="color:var(--success); font-family:var(--font-mono); font-size: 0.9em; font-weight: 500;">${primary || t('models.notConfigured')}</span>
+            <span style="font-size: 11px; color: var(--text-tertiary); font-weight: normal;">${t('models.nFallbacks', { count: fallbacks.length })}</span>
           </div>
         </div>
       </div>
@@ -178,12 +178,12 @@ function renderFallbackWaterfall(state) {
   return `
     <div class="fallback-editor-panel" style="background: var(--bg-secondary); padding: 12px; border-radius: var(--radius-md);">
       <div style="margin-bottom: 12px; font-size: 11px; color: var(--text-secondary); background: var(--bg-info-subtle); padding: 6px 10px; border-radius: 4px; border-left: 3px solid var(--primary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
-        <strong>💡 最佳实践：</strong> 建议备选模型保持在 <strong>2-3 款</strong> 并分布在不同服务商，以平衡可用性与延迟。
+        ${t('models.bestPracticeHint')}
       </div>
       
       <div style="display: grid; grid-template-columns: 1fr 1.2fr; gap: 24px;">
         <div>
-          <div style="font-size: var(--font-size-xs); font-weight: bold; margin-bottom: 8px; color: var(--text-tertiary);">当前生效链 (支持拖拽排序)</div>
+          <div style="font-size: var(--font-size-xs); font-weight: bold; margin-bottom: 8px; color: var(--text-tertiary);">${t('models.activeChainTitle')}</div>
           <div id="active-fallback-list" style="display: flex; flex-direction: column; gap: 4px; min-height: 50px;">
             ${currentFallbacks.map((f, i) => `
               <div class="fallback-chain-item" data-id="${f}" style="display: flex; align-items: center; justify-content: space-between; background: var(--bg-primary); padding: 6px 10px; border-radius: 4px; border: 1px solid var(--border-color);">
@@ -192,19 +192,19 @@ function renderFallbackWaterfall(state) {
                   <span style="font-family: var(--font-mono); font-size: var(--font-size-xs); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${i + 1}. ${f}</span>
                 </div>
                 <div style="display: flex; gap: 4px; flex-shrink: 0;">
-                  <button class="btn btn-xs btn-secondary btn-set-primary-from-fb" data-id="${f}" style="padding: 1px 4px; font-size: 10px;">设为主用</button>
-                  <button class="btn-icon btn-remove-fb" data-id="${f}" title="移除">${icon('x', 12)}</button>
+                  <button class="btn btn-xs btn-secondary btn-set-primary-from-fb" data-id="${f}" style="padding: 1px 4px; font-size: 10px;">${t('models.setAsPrimary')}</button>
+                  <button class="btn-icon btn-remove-fb" data-id="${f}" title="${t('models.remove')}">${icon('x', 12)}</button>
                 </div>
               </div>
             `).join('')}
-            ${currentFallbacks.length === 0 ? `<div style="font-size: 12px; color: var(--text-tertiary); text-align: center; padding: 20px; border: 1px dashed var(--border-color); border-radius: 4px;">尚未选择备选模型</div>` : ''}
+            ${currentFallbacks.length === 0 ? `<div style="font-size: 12px; color: var(--text-tertiary); text-align: center; padding: 20px; border: 1px dashed var(--border-color); border-radius: 4px;">${t('models.noFallbackSelected')}</div>` : ''}
           </div>
         </div>
         
         <div>
-          <div style="font-size: var(--font-size-xs); font-weight: bold; margin-bottom: 8px; color: var(--text-tertiary);">可用候选池 (按服务商分组)</div>
+          <div style="font-size: var(--font-size-xs); font-weight: bold; margin-bottom: 8px; color: var(--text-tertiary);">${t('models.candidatePoolTitle')}</div>
           <div id="candidate-model-pool" style="display: flex; flex-direction: column; gap: 6px; max-height: 300px; overflow-y: auto; padding-right: 4px;">
-            ${Object.keys(candidatesByProvider).length === 0 ? `<div style="font-size: 12px; color: var(--text-tertiary); text-align: center; padding: 20px;">无可用候选模型</div>` : 
+            ${Object.keys(candidatesByProvider).length === 0 ? `<div style="font-size: 12px; color: var(--text-tertiary); text-align: center; padding: 20px;">${t('models.noCandidateModel')}</div>` : 
               Object.keys(candidatesByProvider).map(pKey => {
                 const collapsed = !!state._fallback_candidates_collapsed[pKey]
                 const mIds = candidatesByProvider[pKey]
@@ -219,7 +219,7 @@ function renderFallbackWaterfall(state) {
                       ${mIds.map(mId => `
                         <div class="candidate-item" style="display: flex; align-items: center; justify-content: space-between; background: var(--bg-primary); padding: 4px 8px; border-radius: 4px; border: 1px solid var(--border-color); opacity: 0.9;">
                           <span style="font-family: var(--font-mono); font-size: 11px; color: var(--text-primary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${mId}</span>
-                          <button class="btn btn-xs btn-primary btn-add-fb" data-full="${pKey}/${mId}" style="padding: 1px 6px; font-size: 10px;">加入</button>
+                          <button class="btn btn-xs btn-primary btn-add-fb" data-full="${pKey}/${mId}" style="padding: 1px 6px; font-size: 10px;">${t('models.add')}</button>
                         </div>
                       `).join('')}
                     </div>
@@ -232,8 +232,8 @@ function renderFallbackWaterfall(state) {
       </div>
       
       <div style="margin-top: 16px; display: flex; justify-content: flex-end; gap: 8px;">
-        <button class="btn btn-sm btn-secondary" id="btn-cancel-fallback">取消</button>
-        <button class="btn btn-sm btn-primary" id="btn-save-fallback">保存并应用</button>
+        <button class="btn btn-sm btn-secondary" id="btn-cancel-fallback">${t('models.cancel')}</button>
+        <button class="btn btn-sm btn-primary" id="btn-save-fallback">${t('models.saveAndApply')}</button>
       </div>
     </div>
   `
@@ -268,7 +268,7 @@ function bindWaterfallActions(page, state) {
       state.config.agents.defaults.model.fallbacks = newFallbacks
       
       renderDefaultBar(page, state)
-      toast(`已将 ${full} 设为主模型`, 'success')
+      toast(t('models.setAsPrimarySuccess', { model: full }), 'success')
     }
   })
 
@@ -381,7 +381,7 @@ function bindWaterfallActions(page, state) {
   // 保存
   container.querySelector('#btn-save-fallback').onclick = async () => {
     state.showFallbackEditor = false
-    await doAutoSave(state)
+    autoSave(state)
     renderDefaultBar(page, state)
   }
 }
@@ -1686,7 +1686,7 @@ async function testModel(btn, state, providerKey, idx) {
       const summary = lines[0]
       const detail = lines.slice(1).join('\n').trim()
       if (detail) {
-        const detailHtml = detail.replace(/</g, '&lt;').replace(/(https?:\/\/[^\s,,。;))'"&]+)/g, '<a href="$1" target="_blank" style="color:var(--primary);text-decoration:underline">$1</a>')
+        const detailHtml = detail.replace(/</g, '&lt;').replace(/(https?:\/\/[^\s，。;））'"&]+)/g, '<a href="$1" target="_blank" style="color:var(--primary);text-decoration:underline">$1</a>')
         toast(`<strong>${modelId}</strong> ${summary.replace(/</g, '&lt;')}<br><span style="font-size:11px;line-height:1.5;word-break:break-all">${detailHtml}</span>`, 'warning', { duration: 10000, html: true })
       } else {
         toast(`${modelId} ${summary}`, 'warning', { duration: 6000 })

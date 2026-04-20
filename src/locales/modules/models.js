@@ -157,4 +157,18 @@ export default {
   restartFailed: _('重启失败', 'Restart failed', '重啟失敗'),
   configSavedGwFailed: _('配置已保存，但 Gateway 重启失败', 'Config saved, but Gateway restart failed', '設定已儲存，但 Gateway 重啟失敗'),
   visitSite: _('访问 {name}官网', 'Visit {name} website', '訪問 {name}官網'),
+  // 瀑布流编辑器新增 keys
+  systemModelTitle: _('系统主/备模型', 'System Primary/Backup Models', '系統主/備模型'),
+  activeChainTitle: _('当前生效链 (支持拖拽排序)', 'Active Chain (drag to reorder)', '目前生效鏈 (支援拖曳排序)'),
+  candidatePoolTitle: _('可用候选池 (按服务商分组)', 'Candidate Pool (grouped by provider)', '可用候選池 (按服務商分組)'),
+  noCandidateModel: _('无可用候选模型', 'No candidate models available', '無可用候選模型'),
+  bestPracticeHint: _('💡 最佳实践：建议备选模型保持在 2-3 款并分布在不同服务商，以平衡可用性与延迟。', '💡 Best practice: Keep 2-3 fallback models distributed across different providers to balance availability and latency.', '💡 最佳實踐：建議備選模型保持在 2-3 款並分布在不同服務商，以平衡可用性與延遲。'),
+  setAsPrimarySuccess: _('已将 {model} 设为主模型', 'Set {model} as primary model', '已將 {model} 設為主模型'),
+  noFallbackSelected: _('尚未选择备选模型', 'No fallback models selected', '尚未選擇備選模型'),
+  cancel: _('取消', 'Cancel', '取消'),
+  saveAndApply: _('保存并应用', 'Save and Apply', '儲存並套用'),
+  nFallbacks: _('{count} 个备选', '{count} fallback(s)', '{count} 個備選'),
+  setAsPrimary: _('设为主用', 'Set as Primary', '設為主用'),
+  remove: _('移除', 'Remove', '移除'),
+  add: _('加入', 'Add', '加入'),
 }
