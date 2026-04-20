@@ -5657,7 +5657,9 @@ pub async fn list_remote_models(
         // 404/405/501 = 服务商不支持 /models 接口，给用户友好提示而非技术错误
         let code = status.as_u16();
         if code == 404 || code == 405 || code == 501 {
-            return Err("[NOT_SUPPORTED] 该服务商不支持自动获取模型列表，请手动输入模型 ID".to_string());
+            return Err(
+                "[NOT_SUPPORTED] 该服务商不支持自动获取模型列表，请手动输入模型 ID".to_string(),
+            );
         }
         let msg = extract_error_message(&text, status);
         return Err(format!("获取模型列表失败: {msg}"));
