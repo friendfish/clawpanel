@@ -210,10 +210,18 @@ export const api = {
   doctorCheck: () => invoke('doctor_check'),
   doctorFix: () => invoke('doctor_fix'),
   listOpenclawVersions: (source = 'chinese') => invoke('list_openclaw_versions', { source }),
-  upgradeOpenclaw: (source = 'chinese', version = null, method = 'auto') => invoke('upgrade_openclaw', { source, version, method }),
-  uninstallOpenclaw: (cleanConfig = false) => invoke('uninstall_openclaw', { cleanConfig }),
-  installGateway: () => invoke('install_gateway'),
-  uninstallGateway: () => invoke('uninstall_gateway'),
+  // #Compat-4: 升级/卸载后 CLI 路径/版本/服务状态都可能变，一次性清掉相关前端缓存；
+  //           Rust 端已经在命令内部调用 refresh_enhanced_path + invalidate_cli_detection_cache。
+  upgradeOpenclaw: (source = 'chinese', version = null, method = 'auto') => {
+    invalidate('check_installation', 'check_node', 'check_git', 'get_services_status', 'get_status_summary', 'get_version_info')
+    return invoke('upgrade_openclaw', { source, version, method })
+  },
+  uninstallOpenclaw: (cleanConfig = false) => {
+    invalidate('check_installation', 'check_node', 'check_git', 'get_services_status', 'get_status_summary', 'get_version_info')
+    return invoke('uninstall_openclaw', { cleanConfig })
+  },
+  installGateway: () => { invalidate('get_services_status', 'get_status_summary'); return invoke('install_gateway') },
+  uninstallGateway: () => { invalidate('get_services_status', 'get_status_summary'); return invoke('uninstall_gateway') },
   getNpmRegistry: () => cachedInvoke('get_npm_registry', {}, 30000),
   setNpmRegistry: (registry) => { invalidate('get_npm_registry'); return invoke('set_npm_registry', { registry }) },
   testModel: (baseUrl, apiKey, modelId, apiType = null) => invoke('test_model', { baseUrl, apiKey, modelId, apiType }),

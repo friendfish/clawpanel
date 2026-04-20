@@ -4191,6 +4191,10 @@ async fn uninstall_openclaw_inner(
     }
 
     let _ = app.emit("upgrade-progress", 100);
+    // #Compat-4: 卸载后刷缓存，否则 is_cli_installed（60s TTL）/ enhanced_path
+    // 仍是旧快照，UI 会在 60 秒内继续显示「CLI 已安装」或 Gateway 还在运行。
+    super::refresh_enhanced_path();
+    crate::commands::service::invalidate_cli_detection_cache();
     let msg = if clean_config {
         "✅ OpenClaw 已完全卸载（包括配置文件）"
     } else {
