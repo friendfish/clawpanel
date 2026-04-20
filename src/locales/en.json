@@ -332,7 +332,7 @@
     "qtcoolCheckinPage": "check-in page",
     "qtcoolCheckinHint": "for free daily credits, copy your Key from",
     "qtcoolDashboard": "dashboard",
-    "qtcoolCopyKey": "",
+    "qtcoolCopyKey": "Copy your Key",
     "qtcoolSelectTitle": "Select models to add",
     "qtcoolSelectHint": "Fetched {count} available models from QingChen Cloud. Select and add.",
     "qtcoolKeyLabel": "API Key",
@@ -464,7 +464,8 @@
     "restartOk": "Gateway restarted",
     "restartFailed": "Restart failed",
     "configSavedGwFailed": "Config saved, but Gateway restart failed",
-    "visitSite": "Visit {name} website"
+    "visitSite": "Visit {name} website",
+    "configure": "Configure"
   },
   "agents": {
     "title": "Agents",
