@@ -5063,7 +5063,7 @@ fn normalize_base_url(raw: &str) -> String {
 fn normalize_model_api_type(raw: &str) -> &'static str {
     match raw.trim() {
         "anthropic" | "anthropic-messages" => "anthropic-messages",
-        "google-gemini" => "google-gemini",
+        "google-gemini" | "google-generative-ai" => "google-gemini",
         "openai" | "openai-completions" | "openai-responses" | "" => "openai-completions",
         _ => "openai-completions",
     }
