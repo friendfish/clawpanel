@@ -3,7 +3,10 @@
  */
 import { t } from '../../../lib/i18n.js'
 import { api } from '../../../lib/tauri-api.js'
-import { PROVIDER_PRESETS } from '../../../lib/model-presets.js'
+import {
+  loadHermesProviders,
+  inferProviderByBaseUrl,
+} from '../lib/providers.js'
 
 const ICONS = {
   running: `<svg viewBox="0 0 24 24" fill="none" stroke="var(--success, #22c55e)" stroke-width="2.5" width="20" height="20"><circle cx="12" cy="12" r="10"/><polyline points="16 12 12 8 8 12"/><line x1="12" y1="16" x2="12" y2="8"/></svg>`,
@@ -14,7 +17,8 @@ const ICONS = {
   refresh: `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><polyline points="23 4 23 10 17 10"/><path d="M20.49 15a9 9 0 11-2.12-9.36L23 10"/></svg>`,
 }
 
-const HERMES_PROVIDERS = PROVIDER_PRESETS.filter(p => !p.hidden)
+// Provider registry—异步加载，第一次 render 前填充
+let hermesProviders = []
 
 // Lazy Tauri event listen (avoid top-level await for vite build)
 let _listenFn = null
@@ -131,7 +135,7 @@ export function render() {
     const displayModel = modelName || t('engine.dashNoModel')
 
     // 服务商高亮匹配
-    const activePreset = HERMES_PROVIDERS.find(p => formBaseUrl === p.baseUrl)
+    const activePreset = inferProviderByBaseUrl(hermesProviders, formBaseUrl)
 
     // 模型下拉 HTML
     const dropdownHtml = showDropdown && models.length
@@ -195,9 +199,13 @@ export function render() {
           </div>
           <div style="${modelConfigCollapsed ? 'display:none' : 'padding:0 20px 20px'}">
             <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px">
-              ${HERMES_PROVIDERS.map(p =>
-                `<button class="btn btn-sm btn-secondary hm-preset-btn" data-key="${p.key}" data-url="${esc(p.baseUrl)}" data-api="${p.api || 'openai-completions'}" style="font-size:11px;padding:2px 8px;${activePreset?.key === p.key ? 'opacity:1;font-weight:600' : 'opacity:0.6'}">${p.label}</button>`
-              ).join('')}
+              ${hermesProviders.filter(p => p.id !== 'custom').map(p => {
+                const api = p.transport === 'anthropic_messages' ? 'anthropic-messages'
+                  : p.transport === 'google_gemini' ? 'google-generative-ai'
+                  : 'openai-completions'
+                const active = activePreset?.id === p.id
+                return `<button class="btn btn-sm btn-secondary hm-preset-btn" data-key="${p.id}" data-url="${esc(p.baseUrl)}" data-api="${api}" style="font-size:11px;padding:2px 8px;${active ? 'opacity:1;font-weight:600' : 'opacity:0.6'}">${p.name}</button>`
+              }).join('')}
             </div>
             <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
               <label style="display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--text-secondary)">
@@ -419,8 +427,12 @@ export function render() {
     if (!formBaseUrl) { cfgMsg = `<span style="color:var(--warning)">${t('engine.configFetchNeedUrl')}</span>`; draw(); return }
     if (!formApiKey) { cfgMsg = `<span style="color:var(--warning)">${t('engine.configFetchNeedKey')}</span>`; draw(); return }
 
-    const matched = HERMES_PROVIDERS.find(p => formBaseUrl === p.baseUrl)
-    const apiType = matched?.api || 'openai-completions'
+    const matched = inferProviderByBaseUrl(hermesProviders, formBaseUrl)
+    const apiType = matched
+      ? (matched.transport === 'anthropic_messages' ? 'anthropic-messages'
+        : matched.transport === 'google_gemini' ? 'google-generative-ai'
+        : 'openai-completions')
+      : 'openai-completions'
 
     fetchBusy = true; cfgMsg = ''; draw()
     try {
@@ -441,8 +453,8 @@ export function render() {
     if (!formApiKey) { cfgMsg = `<span style="color:var(--warning)">${t('engine.configFetchNeedKey')}</span>`; draw(); return }
     if (!formModel) { cfgMsg = `<span style="color:var(--warning)">请输入模型名</span>`; draw(); return }
 
-    const matched = HERMES_PROVIDERS.find(p => formBaseUrl && p.baseUrl === formBaseUrl)
-    const provider = matched?.key || 'custom'
+    const matched = inferProviderByBaseUrl(hermesProviders, formBaseUrl)
+    const provider = matched?.id || 'custom'
 
     modelBusy = true; cfgMsg = ''; draw()
     try {
@@ -534,8 +546,15 @@ export function render() {
     draw()
   }
 
-  // 初始加载
-  refresh()
+  // 初始加载：先拉取 provider registry（和 refresh 并行），再渲染
+  ;(async () => {
+    try {
+      hermesProviders = await loadHermesProviders()
+    } catch (err) {
+      console.warn('[hermes/dashboard] failed to load providers:', err)
+    }
+    refresh()
+  })()
 
   // --- Guardian 事件监听：实时响应 Gateway 状态变化 ---
   let unlisteners = []

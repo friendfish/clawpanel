@@ -5,8 +5,13 @@
  */
 import { t } from '../../../lib/i18n.js'
 import { api, invalidate } from '../../../lib/tauri-api.js'
-import { PROVIDER_PRESETS } from '../../../lib/model-presets.js'
 import { getActiveEngine } from '../../../lib/engine-manager.js'
+import {
+  loadHermesProviders,
+  groupProviders,
+  inferProviderByBaseUrl,
+  findProviderById,
+} from '../lib/providers.js'
 
 // SVG 图标
 const ICONS = {
@@ -20,8 +25,10 @@ const ICONS = {
 
 // 核心安装不带 extras，后续可在管理页面按需安装
 
-// Hermes 使用 OpenAI 兼容接口，过滤出兼容的服务商
-const HERMES_PROVIDERS = PROVIDER_PRESETS.filter(p => !p.hidden)
+// Provider 数据 — 异步从 Rust hermes_providers.rs 加载（首次 render 前）
+// Web 模式下 dev-api.js 返回空数组，UI 会降级到手填模式
+let hermesProviders = []
+let hermesGroups = { apiKeyIntl: [], apiKeyCn: [], aggregators: [], oauth: [], externalProc: [], custom: [] }
 
 export function render() {
   const el = document.createElement('div')
@@ -228,9 +235,7 @@ export function render() {
 
   // --- 配置阶段 ---
   function renderConfigure() {
-    const presetBtns = HERMES_PROVIDERS.map(p =>
-      `<button class="btn btn-sm btn-secondary hermes-preset-btn" data-key="${p.key}" data-url="${p.baseUrl}" data-api="${p.api}" style="font-size:12px;padding:3px 10px;margin:0 6px 6px 0">${p.label}${p.badge ? ` <span style="font-size:9px;background:var(--accent);color:#fff;padding:1px 4px;border-radius:6px;margin-left:3px">${p.badge}</span>` : ''}</button>`
-    ).join('')
+    const presetBtns = renderGroupedProviderButtons()
 
     return `<div class="card" style="margin-bottom:16px">
       <div class="card-body" style="padding:24px">
@@ -240,7 +245,7 @@ export function render() {
         <div class="hermes-form">
           <div class="hermes-field">
             <span>${t('engine.configProvider')}</span>
-            <div style="display:flex;flex-wrap:wrap">${presetBtns}</div>
+            ${presetBtns}
             <div id="hm-preset-detail" style="display:none;margin-top:6px;padding:8px 12px;background:var(--bg-tertiary);border-radius:var(--radius-md,8px);font-size:12px"></div>
           </div>
           <label class="hermes-field">
@@ -340,14 +345,18 @@ export function render() {
         // 高亮选中
         el.querySelectorAll('.hermes-preset-btn').forEach(b => b.style.opacity = '0.5')
         btn.style.opacity = '1'
-        // 显示服务商详情
-        const preset = HERMES_PROVIDERS.find(p => p.key === btn.dataset.key)
+        // 显示服务商详情（展示 authType + models 预览）
+        const preset = findProviderById(hermesProviders, btn.dataset.key)
         const detailEl = el.querySelector('#hm-preset-detail')
         if (detailEl && preset) {
-          let html = preset.desc ? `<div style="color:var(--text-secondary);line-height:1.5">${preset.desc}</div>` : ''
-          if (preset.site) html += `<a href="${preset.site}" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:none;font-size:11px;margin-top:3px;display:inline-block">→ ${preset.label} 官网</a>`
-          detailEl.innerHTML = html
-          detailEl.style.display = html ? 'block' : 'none'
+          const envLine = preset.apiKeyEnvVars && preset.apiKeyEnvVars.length
+            ? `<div style="color:var(--text-tertiary);font-size:11px;margin-top:2px">写入 <code>${preset.apiKeyEnvVars[0]}</code></div>`
+            : ''
+          const modelsPreview = preset.models && preset.models.length
+            ? `<div style="color:var(--text-tertiary);font-size:11px;margin-top:2px">${preset.models.length} 个已知模型</div>`
+            : '<div style="color:var(--text-tertiary);font-size:11px;margin-top:2px">聚合路由：请自行指定模型</div>'
+          detailEl.innerHTML = `<div style="color:var(--text-secondary);line-height:1.5">${preset.name}</div>${envLine}${modelsPreview}`
+          detailEl.style.display = 'block'
         }
       })
     })
@@ -533,9 +542,13 @@ export function render() {
       // 移除常见尾部路径
       base = base.replace(/\/(chat\/completions|completions|responses|messages|models)\/?$/, '')
 
-      // 判断 API 类型（大部分是 OpenAI 兼容）
-      const matched = HERMES_PROVIDERS.find(p => baseUrl === p.baseUrl)
-      const apiType = matched?.api || 'openai-completions'
+      // 判断 API 类型：按 provider transport 推断，fallback 到 openai 兼容
+      const matched = inferProviderByBaseUrl(hermesProviders, baseUrl)
+      let apiType = 'openai-completions'
+      if (matched) {
+        if (matched.transport === 'anthropic_messages') apiType = 'anthropic-messages'
+        else if (matched.transport === 'google_gemini') apiType = 'google-generative-ai'
+      }
 
       let models = []
 
@@ -598,9 +611,9 @@ export function render() {
     const baseUrl = el.querySelector('#hm-baseurl')?.value?.trim()
     const apiKey = el.querySelector('#hm-apikey')?.value?.trim()
     const model = el.querySelector('#hm-model')?.value?.trim()
-    // 从 baseUrl 推断 provider key
-    const matched = HERMES_PROVIDERS.find(p => baseUrl && p.baseUrl === baseUrl)
-    const provider = matched?.key || 'openai'
+    // 从 baseUrl 推断 provider id；推不出来时用 'custom'，让后端按通用 OpenAI 兼容处理
+    const matched = inferProviderByBaseUrl(hermesProviders, baseUrl)
+    const provider = matched?.id || 'custom'
 
     if (!apiKey) {
       alert('请输入 API Key')
@@ -655,8 +668,63 @@ export function render() {
     draw()
   }
 
-  // 启动检测
-  detect()
+  // 启动检测前先加载 provider registry，然后启动检测
+  ;(async () => {
+    try {
+      hermesProviders = await loadHermesProviders()
+      hermesGroups = groupProviders(hermesProviders)
+    } catch (err) {
+      console.warn('[hermes/setup] failed to load providers:', err)
+    }
+    detect()
+  })()
 
   return el
+}
+
+// ============================================================================
+// Helper: render the grouped provider buttons shown in renderConfigure()
+// ============================================================================
+
+function renderGroupedProviderButtons() {
+  if (!hermesProviders.length) {
+    return `<div style="padding:10px 12px;background:var(--bg-tertiary);border-radius:var(--radius-sm,6px);color:var(--text-secondary);font-size:12px;line-height:1.6">
+      未能加载 provider 列表。Web 模式下可手动填写下方 Base URL 与 API Key 完成配置。
+    </div>`
+  }
+
+  const sectionStyle = 'margin-top:6px'
+  const titleStyle = 'font-size:11px;color:var(--text-tertiary);margin:4px 0 4px;font-weight:500;letter-spacing:0.3px'
+  const rowStyle = 'display:flex;flex-wrap:wrap'
+
+  const btn = (p) => {
+    const envHint = p.apiKeyEnvVars && p.apiKeyEnvVars.length
+      ? ` title="${p.apiKeyEnvVars[0]}"`
+      : ''
+    return `<button class="btn btn-sm btn-secondary hermes-preset-btn"
+      data-key="${p.id}"
+      data-url="${p.baseUrl}"
+      data-api="${p.transport === 'anthropic_messages' ? 'anthropic-messages' : p.transport === 'google_gemini' ? 'google-generative-ai' : 'openai-completions'}"${envHint}
+      style="font-size:12px;padding:3px 10px;margin:0 6px 6px 0">${p.name}</button>`
+  }
+
+  const parts = []
+
+  if (hermesGroups.apiKeyIntl.length) {
+    parts.push(`<div style="${sectionStyle}"><div style="${titleStyle}">国际 · API Key</div><div style="${rowStyle}">${hermesGroups.apiKeyIntl.map(btn).join('')}</div></div>`)
+  }
+  if (hermesGroups.apiKeyCn.length) {
+    parts.push(`<div style="${sectionStyle}"><div style="${titleStyle}">国内 · API Key</div><div style="${rowStyle}">${hermesGroups.apiKeyCn.map(btn).join('')}</div></div>`)
+  }
+  if (hermesGroups.aggregators.length) {
+    parts.push(`<div style="${sectionStyle}"><div style="${titleStyle}">聚合 / 路由</div><div style="${rowStyle}">${hermesGroups.aggregators.map(btn).join('')}</div></div>`)
+  }
+  if (hermesGroups.oauth.length) {
+    const oauthItems = hermesGroups.oauth.map(p =>
+      `<div style="font-size:11px;color:var(--text-tertiary);margin-right:10px"><code>${p.name}</code>：需运行 <code>${p.cliAuthHint}</code></div>`
+    ).join('')
+    parts.push(`<div style="${sectionStyle}"><div style="${titleStyle}">OAuth 登录（需终端）</div><div style="display:flex;flex-wrap:wrap;gap:4px 0">${oauthItems}</div></div>`)
+  }
+
+  return parts.join('')
 }

@@ -6836,7 +6836,16 @@ const handlers = {
     return { model: displayModel, model_raw: modelName, base_url: baseUrl, provider, api_key: apiKey, config_exists: fs.existsSync(configPath) }
   },
 
-  async hermes_fetch_models({ baseUrl, apiKey, apiType } = {}) {
+  // Web-mode stub: the authoritative 22-provider registry lives in Rust.
+  // Web mode is primarily used for remote admin on headless Linux where
+  // Hermes configuration is a minor flow; returning an empty array makes
+  // the frontend fall back to a "Please use the desktop app to configure
+  // Hermes providers" message in setup.js.
+  hermes_list_providers() {
+    return []
+  },
+
+  async hermes_fetch_models({ baseUrl, apiKey, apiType, provider: _provider } = {}) {
     const api = apiType || 'openai'
     let base = baseUrl.replace(/\/+$/, '')
     for (const suffix of ['/chat/completions', '/completions', '/responses', '/messages', '/models']) {
@@ -6867,20 +6876,68 @@ const handlers = {
     return models.sort()
   },
 
-  hermes_update_model({ model } = {}) {
+  hermes_update_model({ model, provider } = {}) {
     const configPath = path.join(hermesHome(), 'config.yaml')
     const content = fs.readFileSync(configPath, 'utf8')
-    let found = false
-    const newContent = content.split('\n').map(line => {
+    const lines = content.split('\n')
+    const out = []
+    let inModel = false
+    let defaultWritten = false
+    let providerWritten = false
+    let defaultIndent = '  '
+
+    for (const line of lines) {
       const t = line.trim()
-      if (t.startsWith('default:') && !found) {
-        found = true
-        const indent = line.length - line.trimStart().length
-        return ' '.repeat(indent) + `default: ${model}`
+      if (t.startsWith('model:')) {
+        inModel = true
+        out.push(line)
+        continue
       }
-      return line
-    }).join('\n')
-    if (!found) throw new Error('config.yaml 中未找到 model.default 字段')
+      if (inModel) {
+        const isIndented = line.startsWith('  ') || line.startsWith('\t')
+        if (!isIndented && t && !t.startsWith('#')) {
+          // leaving model block — flush provider if needed
+          if (provider && provider !== 'custom' && !providerWritten) {
+            out.push(`${defaultIndent}provider: ${provider}`)
+            providerWritten = true
+          }
+          inModel = false
+          out.push(line)
+          continue
+        }
+        if (t.startsWith('default:')) {
+          const indentLen = line.length - line.trimStart().length
+          defaultIndent = ' '.repeat(indentLen)
+          out.push(`${defaultIndent}default: ${model}`)
+          defaultWritten = true
+          continue
+        }
+        if (t.startsWith('provider:')) {
+          if (provider && provider !== 'custom') {
+            const indentLen = line.length - line.trimStart().length
+            out.push(`${' '.repeat(indentLen)}provider: ${provider}`)
+            providerWritten = true
+            continue
+          }
+          if (provider === 'custom') continue  // drop
+          // no new provider → keep old
+          out.push(line)
+          providerWritten = true
+          continue
+        }
+      }
+      out.push(line)
+    }
+
+    // still in model block at EOF
+    if (inModel && provider && provider !== 'custom' && !providerWritten) {
+      out.push(`${defaultIndent}provider: ${provider}`)
+    }
+
+    if (!defaultWritten) throw new Error('config.yaml 中未找到 model.default 字段')
+
+    let newContent = out.join('\n')
+    if (!newContent.endsWith('\n')) newContent += '\n'
     fs.writeFileSync(configPath, newContent)
     return `模型已切换为 ${model}`
   },
