@@ -28,7 +28,8 @@
 - **Web/桌面下载行为分流** — `hermes_logs_download` 根据运行时区分桌面真实落盘与 Web Blob 下载，避免 Web 模式误保存到服务端目录
 - **普通记忆文件下载提示** — Blob 下载提示改为说明浏览器默认下载目录，减少“下载没落点”的误解
 - **Dependabot #11** — 升级 `rustls-webpki` 至 `0.103.13`，修复畸形 CRL BIT STRING 触发 panic 的拒绝服务风险
-- **Dependabot #10 / #12** — 升级 `rand` 至 `0.8.6`、`postcss` 至 `8.5.10`，清理默认分支剩余安全告警
+- **Dependabot #12** — 升级 `postcss` 至 `8.5.10`，修复 CSS stringify 输出中的 XSS 风险
+- **rand 依赖更新** — 升级直接使用的 `rand` 至 `0.8.6`；Tauri 构建期传递依赖中的 `rand 0.7.3` 仍需等待上游解除
 
 ## [0.13.4] - 2026-04-20
 
