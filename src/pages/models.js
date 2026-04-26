@@ -983,16 +983,23 @@ function setPrimary(state, full) {
 // 处理主模型变更后，备选链的数据流转
 function rotateFallbackChain(state, oldPrimary, newPrimary) {
   const modelConfig = ensureDefaultModelConfig(state)
-  const fallbacks = modelConfig.fallbacks || []
-  
+  const validModels = new Set(collectAllModels(state.config).map(m => m.full))
+  const seen = new Set()
+
   // 从备选链中移除新上位的主模型
-  const newFallbacks = fallbacks.filter(f => f !== newPrimary)
-  
+  const newFallbacks = (modelConfig.fallbacks || [])
+    .filter(f => f !== newPrimary && validModels.has(f))
+    .filter(f => {
+      if (seen.has(f)) return false
+      seen.add(f)
+      return true
+    })
+
   // 将原主模型降级放入备选链
-  if (oldPrimary) {
+  if (oldPrimary && oldPrimary !== newPrimary && validModels.has(oldPrimary) && !seen.has(oldPrimary)) {
     newFallbacks.push(oldPrimary)
   }
-  
+
   modelConfig.fallbacks = newFallbacks
 }
 
